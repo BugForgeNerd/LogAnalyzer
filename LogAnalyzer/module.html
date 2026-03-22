@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+
+    <style>
+        /* =========================================================
+         * BASIS LAYOUT
+         * ========================================================= */
+        body {
+            font-family: Arial;
+            font-size: 12px;
+            margin: 0;
+            padding: 10px;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        /* =========================================================
+         * THEMES
+         * ========================================================= */
+        body.dark {
+            --bg: #2b2b2b;
+            --text: #ffffff;
+            --table-bg: #515255;
+            --header-bg: #D37800;
+        }
+
+        body.dark .filter-item label {
+            color: #ccc;
+        }
+
+        body.light {
+            --bg: #ffffff;
+            --text: #000000;
+            --table-bg: #f5f5f5;
+            --header-bg: #cccccc;
+        }
+
+        /* =========================================================
+         * TABLE
+         * ========================================================= */
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            table-layout: auto;
+        }
+
+        th,
+        td {
+            border: 1px solid #ccc;
+            padding: 4px;
+            text-align: left;
+        }
+
+        th {
+            background-color: var(--header-bg);
+            font-weight: bold;
+        }
+
+        tbody tr:nth-child(even) {
+            background-color: var(--table-bg);
+        }
+
+        td:last-child {
+            width: 100%;
+        }
+
+        td:first-child,
+        th:first-child {
+            white-space: nowrap;
+            min-width: 150px;
+        }
+
+        td:nth-child(2),
+        th:nth-child(2) {
+            white-space: nowrap;
+            min-width: 60px;
+        }
+
+        td:nth-child(3),
+        th:nth-child(3) {
+            white-space: nowrap;
+            min-width: 100px;
+        }
+
+        td:nth-child(4),
+        th:nth-child(4) {
+            white-space: nowrap;
+            min-width: 180px;
+        }
+
+        /* =========================================================
+         * CONTROLS / FILTER
+         * ========================================================= */
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-bottom: 10px;
+        }
+
+        .filter-group {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            margin-bottom: 8px;
+        }
+
+        .options-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+			margin-top: 8px;
+        }
+
+        .filter-item {
+            display: flex;
+            flex-direction: column;
+            font-size: 11px;
+        }
+
+        .filter-item label {
+            margin-bottom: 2px;
+            color: #aaa;
+            font-size: 10px;
+        }
+
+        /* =========================================================
+         * WIDTH HELPERS
+         * ========================================================= */
+        .w-id {
+            width: 80px;
+        }
+
+        .w-level {
+            width: 120px;
+        }
+
+        .w-sender {
+            width: 180px;
+        }
+
+        /* =========================================================
+         * STATUS
+         * ========================================================= */
+        #logStatus {
+            margin-top: 10px;
+            font-size: 11px;
+        }
+    </style>
+</head>
+
+<body class="dark">
+
+    <!-- =========================================================
+         FILTER + OPTIONEN
+         ========================================================= -->
+    <br><br><br>
+
+    <div class="controls">
+
+        <!-- FILTERBLOCK -->
+        <div class="filter-group">
+
+            <div class="filter-item">
+                <label>ID</label>
+                <select id="filterId" class="w-id"></select>
+            </div>
+
+            <div class="filter-item">
+                <label>Typ</label>
+                <select id="filterLevel" class="w-level"></select>
+            </div>
+
+            <div class="filter-item">
+                <label>Sender</label>
+                <select id="filterSender" class="w-sender"></select>
+            </div>
+
+            <div class="filter-item">
+                <label>Suche Meldung</label>
+                <input type="text" id="filterText">
+            </div>
+
+        </div>
+
+        <!-- OPTIONSBLOCK -->
+        <div class="options-group">
+
+            <select id="filterMode">
+                <option value="OR">ODER</option>
+                <option value="AND" selected>UND</option>
+            </select>
+
+            <select id="limitSelect">
+                <option>50</option>
+                <option>100</option>
+                <option>200</option>
+                <option>500</option>
+                <option>1000</option>
+                <option selected>2000</option>
+                <option>5000</option>
+                <option>10000</option>
+                <option>20000</option>
+            </select>
+
+            <select id="themeSelect">
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+            </select>
+
+            <label>
+                <input type="checkbox" id="autoRefresh"> Auto (5s)
+            </label>
+
+            <button onclick="loadData()">Aktualisieren</button>
+            <button onclick="exportCSV()">CSV Export</button>
+
+        </div>
+
+    </div>
+
+    <!-- STATUS -->
+    <div id="logStatus"></div>
+
+    <!-- =========================================================
+         LOG TABELLE
+         ========================================================= -->
+    <table id="logTable">
+        <thead>
+            <tr>
+                <th>Datum/Uhrzeit</th>
+                <th>ID</th>
+                <th>Typ</th>
+                <th>Sender</th>
+                <th>Meldung</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <script>
+        /* =========================================================
+         * STATE
+         * ========================================================= */
+        let autoTimer = null;
+
+        /* =========================================================
+         * FILTER AUSLESEN
+         * ========================================================= */
+        function getFilters() {
+            return {
+                text: document.getElementById('filterText').value,
+                level: document.getElementById('filterLevel').value,
+                sender: document.getElementById('filterSender').value,
+                id: document.getElementById('filterId').value,
+                mode: document.getElementById('filterMode').value,
+                limit: parseInt(document.getElementById('limitSelect').value)
+            };
+        }
+
+        /* =========================================================
+         * DATEN LADEN
+         * ========================================================= */
+        function loadData() {
+            let payload = getFilters();
+            requestAction('getLogs', JSON.stringify(payload));
+        }
+
+        /* =========================================================
+         * MESSAGE HANDLER (Backend Frontend)
+         * ========================================================= */
+        function handleMessage(data) {
+
+            let parsed = JSON.parse(data);
+
+            /* ---------- CSV EXPORT ---------- */
+            if (parsed.csv) {
+
+                const blob = new Blob([parsed.csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = "logs.csv";
+                a.click();
+
+                URL.revokeObjectURL(url);
+                return;
+            }
+
+            /* ---------- TABLE UPDATE ---------- */
+            let rows = parsed.rows || [];
+            let meta = parsed.meta || {};
+
+            fillDropdown('filterLevel', meta.levels);
+            fillDropdown('filterSender', meta.senders);
+            fillDropdown('filterId', meta.ids);
+
+            let tbody = document.querySelector('#logTable tbody');
+            tbody.innerHTML = '';
+
+            rows.forEach(row => {
+
+                let tr = document.createElement('tr');
+
+                tr.innerHTML = `
+                    <td>${row.timestamp ?? ''}</td>
+                    <td>${row.id ?? ''}</td>
+                    <td>${row.level ?? ''}</td>
+                    <td>${row.sender ?? ''}</td>
+                    <td>${row.message ?? ''}</td>
+                `;
+
+                tbody.appendChild(tr);
+            });
+
+            document.getElementById('logStatus').innerText =
+                `Gefiltert: ${meta.totalFiltered} | Angezeigt: ${meta.shown}`;
+        }
+
+        /* =========================================================
+         * DROPDOWNS DYNAMISCH BEFÜLLEN
+         * ========================================================= */
+        function fillDropdown(id, values) {
+
+            if (!values) return;
+
+            let select = document.getElementById(id);
+            let current = select.value;
+
+            select.innerHTML = '<option value="">Alle</option>';
+
+            let exists = false;
+
+            values.sort().forEach(v => {
+
+                let opt = document.createElement('option');
+                opt.value = v;
+                opt.textContent = v;
+
+                if (v === current) {
+                    exists = true;
+                }
+
+                select.appendChild(opt);
+            });
+
+            // aktuellen Wert erhalten (auch wenn nicht mehr vorhanden)
+            if (current && !exists) {
+                let opt = document.createElement('option');
+                opt.value = current;
+                opt.textContent = current + ' (nicht mehr vorhanden)';
+                opt.selected = true;
+                select.appendChild(opt);
+            } else {
+                select.value = current;
+            }
+        }
+
+        /* =========================================================
+         * CSV EXPORT
+         * ========================================================= */
+        function exportCSV() {
+            const payload = getFilters();
+            requestAction('exportCSV', JSON.stringify(payload));
+        }
+
+        /* =========================================================
+         * EVENTS
+         * ========================================================= */
+
+        // Auto Refresh
+        document.getElementById('autoRefresh').addEventListener('change', function () {
+            if (this.checked) {
+                autoTimer = setInterval(loadData, 5000);
+            } else {
+                clearInterval(autoTimer);
+            }
+        });
+
+        // Theme Wechsel
+        document.getElementById('themeSelect').addEventListener('change', function () {
+            document.body.className = this.value;
+        });
+
+        // Filter Events
+        ['filterLevel', 'filterSender', 'filterId', 'filterMode', 'limitSelect']
+            .forEach(id => {
+                document.getElementById(id).addEventListener('change', loadData);
+            });
+
+        document.getElementById('filterText').addEventListener('input', loadData);
+
+        /* =========================================================
+         * INIT
+         * ========================================================= */
+        loadData();
+
+    </script>
+
+</body>
+</html>

@@ -1,0 +1,24 @@
+{
+    "translations": {
+        "de": {
+
+            "LogFilePathLabel": "Pfad der Logdatei",
+            "WARN_SYMPATH_VERSION": "WARNUNG: Dieses Modul benötigt Symcon ",
+            "LICENSE_NOTICE": "Dieses Softwaremodul ist unter Apache-2.0 lizenziert und kann sowohl privat als auch kommerziell kostenlos genutzt werden. Nutzung ohne Lizenzgebühren. Alle Schadensersatzansprüche ausgeschlossen. Weitere Informationen zu Modul und Funktionalität auf GitHub: https://github.com/BugForgeNerd/LogAnalyser",
+            "DONATION_HEADER": "Unterstützen Sie Open-Source Entwickler",
+            "DONATION_TEXT": "Open Source bietet Kosteneinsparungen, hohe Sicherheit, Transparenz und Unabhängigkeit von Anbietern. Durch den offenen Code ist flexible Anpassung und Interoperabilität möglich und es profitiert von einer aktiven Community, die Fehler schnell erkennt und behebt.",
+            "DONATION_INFO": "Wenn Sie mich unterstützen möchten, geht das ganz einfach und freiwillig über den folgenden Link.",
+            "PAYPAL_LINK": "https://www.paypal.com/donate/?hosted_button_id=GPLYXLH6AJYF8"   
+        },
+        "en": {
+            "LogFilePathLabel": "Path of the Logfile",
+            "WARN_SYMPATH_VERSION": "WARNING: This module requires Symcon ",
+            "LICENSE_NOTICE": "This software is licensed under Apache-2.0 and is free for both private and commercial use. You can use it without paying license fees. All liability for damages is excluded. More information about the module and its functionality is available on GitHub: https://github.com/BugForgeNerd/LogAnalyser",
+            "DONATION_HEADER": "Support Open-Source Developers",
+            "DONATION_TEXT": "Open source offers cost savings, high security, transparency, and independence from vendors. Its open code allows flexible customization, interoperability, and benefits from an active community that quickly identifies and fixes bugs.",
+            "DONATION_INFO": "If you’d like to support me, you can do so easily and voluntarily via the following link.",
+            "PAYPAL_LINK": "https://www.paypal.com/donate/?hosted_button_id=GPLYXLH6AJYF8"
+        }
+    }
+}
+
