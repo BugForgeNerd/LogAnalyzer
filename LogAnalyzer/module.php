@@ -6,6 +6,15 @@
  * sudo /etc/init.d/symcon restart
  *
  * ToDo:
+ * - Versionsprüfung anpassen in Formular, Bug im Link zu Github						| erl.
+ * - Oberen Bereich festhalten und nur unten scrollen, aber nur umschaltbar per Flag
+ * - Mehrfachauswahl in den DropDowns
+ * - Dropdown aller Logdateien, auch ältere zur Auswahl
+ * - DarkLight aus Symcon Einstellung übernehmen
+ * - Seiteweise vorblättern bei Auswahl der maxLines je Seite
+ * - Prüfung Loggröße in Abhängigkeit der PHP memory									| erl.
+ * - Große Logdateien ermöglichen
+ * - Anzeige bei MaxExpand-Kachel
  * - 
 */
 
@@ -108,6 +117,15 @@ class LogAnalyzer extends IPSModuleStrict
 			$this->SendDebug("getLogs", "text=$text level=$level sender=$sender id=$id mode=$mode limit=$limit", 0);
 
 			$lines = $this->ReadLogFile();
+
+			////////////////////////////////////////////////
+			// Größe der Logdatei prüfen
+			if (is_string($lines)) {
+				$this->SendDebug("getLogs", "Abbruch wegen Fehler", 0);
+				$this->UpdateVisualizationValue(json_encode(['error' => $lines]));
+				return; 
+			}
+			////////////////////////////////////////////////
 
 			// Stacktraces & mehrzeilige Logs zusammenführen
 			$lines = $this->GroupLogLines($lines);
@@ -266,7 +284,7 @@ class LogAnalyzer extends IPSModuleStrict
 	 *
 	 * @return array Array mit Logzeilen
 	 */	
-    private function ReadLogFile(): array
+    private function ReadLogFile(): array|string
     {
         $path = $this->ReadPropertyString('LogFilePath');
 		
@@ -279,7 +297,16 @@ class LogAnalyzer extends IPSModuleStrict
 			$this->SendDebug("LogFile", "Logfile nicht gefunden: " . $path, 0);
 			return [];
 		}
-
+		
+		////////////////////////////////////////////////
+		// Größe der Logdatei prüfen
+		$error = $this->IsLogFileTooLarge($path);
+		if ($error !== null) {
+			$this->SendDebug("LogFile", $error, 0);
+			return $error; // kein UpdateVisualizationValue mehr!
+		}
+		////////////////////////////////////////////////
+		
         $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 		$this->SendDebug("ReadLogFile", "Zeilen gelesen: " . count($lines), 0);
 		return $lines;
@@ -345,13 +372,18 @@ class LogAnalyzer extends IPSModuleStrict
 	public function GetConfigurationForm(): string
 	{
 		// --- Kernel-Version prüfen ---
-		$kernel = IPS_GetKernelVersion();
+		$requiredVersion = '8.1';
+		$installedVersion = IPS_GetKernelVersion();
 		$warnLabel = [];
 
-		if (version_compare($kernel, '8.2', '<')) {
+		if (version_compare($installedVersion, $requiredVersion, '<')) {
 			$warnLabel[] = [
 				'type'    => 'Label',
-				'caption' => $this->Translate('WARN_SYMPATH_VERSION') . $kernel,
+				'caption' => sprintf(
+					$this->Translate('WARN_SYMPATH_VERSION'),
+					$requiredVersion,
+					$installedVersion
+				),
 				'color'   => '8B2500'
 			];
 		}
@@ -513,6 +545,55 @@ class LogAnalyzer extends IPSModuleStrict
 
 		return $grouped;
 	}
+	
+	private function IsLogFileTooLarge(string $path): ?string
+	{
+		if (!file_exists($path)) {
+			return "Logdatei nicht gefunden.";
+		}
 
+		$fileSize = filesize($path);
+
+		// memory_limit holen (z.B. "32M")
+		$memoryLimit = ini_get('memory_limit');
+		$bytes = $this->ConvertToBytes($memoryLimit);
+
+		// 10% vom Memory, max 10MB
+		$maxSize = min($bytes * 0.1, 20 * 1024 * 1024);
+
+		// Fallback Minimum (optional)
+		$maxSize = max($maxSize, 2 * 1024 * 1024);
+
+		if ($fileSize > $maxSize) {
+
+			$fileSizeMB = round($fileSize / 1024 / 1024, 2);
+			$maxSizeMB  = round($maxSize / 1024 / 1024, 2);
+
+			return sprintf(
+				$this->Translate("LOGFILE_TOO_LARGE"),
+				$fileSizeMB,
+				$maxSizeMB
+			);
+		}
+
+		return null;
+	}
+	
+	private function ConvertToBytes(string $val): int
+	{
+		$val = trim($val);
+		$last = strtolower($val[strlen($val)-1]);
+
+		$num = (int)$val;
+
+		switch ($last) {
+			case 'g': $num *= 1024;
+			case 'm': $num *= 1024;
+			case 'k': $num *= 1024;
+		}
+
+		return $num;
+	}	
+	
 }
 ?>

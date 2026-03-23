@@ -145,10 +145,17 @@
         /* =========================================================
          * STATUS
          * ========================================================= */
-        #logStatus {
-            margin-top: 10px;
-            font-size: 11px;
-        }
+		#logStatus {
+			margin-top: 10px;
+			font-size: 11px;
+		}
+
+		/* Fehlerzustand */
+		#logStatus.error {
+			font-size: 16px;
+			font-weight: bold;
+			color: #ff4d4d;
+		}
     </style>
 </head>
 
@@ -274,7 +281,24 @@
          * ========================================================= */
         function handleMessage(data) {
 
-            let parsed = JSON.parse(data);
+			let parsed = JSON.parse(data);
+			
+			const statusEl = document.getElementById('logStatus'); 
+
+			/* Größe der Logdatei prüfen =========================== */
+			if (parsed.error) {
+				document.getElementById('logTable').style.display = 'none';
+
+				statusEl.innerText = parsed.error;
+				statusEl.className = "error"; // Fehlerstil aktivieren
+
+				return;
+			} else {
+				document.getElementById('logTable').style.display = 'table';
+
+				statusEl.className = ""; // Fehlerstil entfernen
+			}
+			/* ===================================================== */
 
             /* ---------- CSV EXPORT ---------- */
             if (parsed.csv) {
