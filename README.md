@@ -4,10 +4,11 @@
 ![License](https://img.shields.io/badge/license-Apache2.0-blue.svg)
 
 Das Modul **LogAnalyzer** ermöglicht die Analyse und Filterung von IP-Symcon Logdateien direkt im WebFront.  
-Logeinträge können nach verschiedenen Kriterien gefiltert, durchsucht und als CSV exportiert werden.
+Logeinträge können gefiltert, durchsucht und seitenweise geladen werden. Dabei stehen verschiedene Betriebsmodi zur Verfügung.
 
 > **Hinweis:** Dieses Modul ist ausschließlich für die **neue Kachelansicht (Tile View)** von IP-Symcon entwickelt.  
 > Die klassische WebFront-Ansicht wird **nicht unterstützt**.
+> Linux und Linux in VMs, sowie Windows basierte Systeme werden voll unterstützt. Docker, MAC, PI verwenden kein "tac" und werden auf grep umgestellt, was nicht ganz so viel Leistung vei großen bringt. Log-Dateien bis 6 MB können mit PHP eingebauten Mitteln auf allen Systemen verarbeitet werden. Eine Ultra-schnelle Datenanalyse ist bereits als Erweiterung in Arbeit.
 
 ---
 
@@ -26,46 +27,80 @@ Logeinträge können nach verschiedenen Kriterien gefiltert, durchsucht und als 
 
 ## 1. Funktionsumfang
 
-- Anzeige von IP-Symcon Logdateien im WebFront  
+- Anzeige von IP-Symcon Logdateien in der Kachelvisualisierung  
+- Seitenweise Darstellung großer Logdateien  
 - Filterung nach:
-  - Textinhalt (Meldung)
-  - Log-Level (Typ)
+  - Objekt-ID
+  - Meldungstyp
   - Sender
-  - ID  
-- Kombinierte Filterlogik:
-  - UND / ODER Verknüpfung  
-- Begrenzung der angezeigten Einträge (Limit)  
-- Automatische Aktualisierung (Auto-Refresh)  
+  - Freitext (Meldung)  
+- Dynamische Filterlisten basierend auf Logdaten  
+- Navigation durch Logseiten (ältere / neuere Einträge)  
+- Anzeige von Trefferbereich und Gesamtmenge  
+- Lade- und Statusindikator während der Verarbeitung  
 - Umschaltbares Theme (Dark / Light)  
-- Dynamische Dropdowns basierend auf vorhandenen Logdaten  
-- CSV-Export der gefilterten Logeinträge  
-- Unterstützung mehrzeiliger Logeinträge:
-  - Stacktraces
-  - PHP-Fatal-Errors
-  - Debug-Ausgaben mit Zeilenumbrüchen
-  - automatische Gruppierung zu zusammenhängenden Einträgen
+- Umschaltbarer kompakter Darstellungsmodus  
+- Auswahl verschiedener Betriebsmodi zur Performance-Optimierung  
 
-### Verarbeitung von Logeinträgen
+### Betriebsmodi
 
-IP-Symcon Logdateien enthalten nicht ausschließlich strikt formatierte Einträge.
+Das Modul stellt drei Betriebsmodi zur Verfügung:
 
-Neben standardisierten Zeilen im Format:
+**Standard**
+- Reine PHP-Verarbeitung  
+- Maximale Kompatibilität  
+- Geeignet für kleinere Logdateien  
 
-`Datum | ID | Typ | Sender | Meldung`
+**System**
+- Nutzung von Systemwerkzeugen (z. B. grep, awk, PowerShell)  
+- Höhere Performance bei großen Logdateien  
 
-können auch mehrzeilige Inhalte auftreten, z. B.:
+**Ultra**
+- Reserviert für zukünftige Erweiterungen  
+- Aktuell ohne eigene Implementierung  
 
-- Stacktraces
-- PHP-Fatal-Errors
-- mehrzeilige Debug-Ausgaben
+## Unterstützte Betriebssysteme
 
-Diese Einträge entsprechen nicht dem Standard-Schema und werden vom Modul automatisch erkannt und zu einem logischen Eintrag zusammengefasst.
+Der LogAnalyzer läuft auf allen von IP-Symcon unterstützten Systemen:
 
-Dabei gilt:
+- Linux (empfohlen für große Logdateien)
+- Windows
+- macOS
+- Docker / Container-Umgebungen
+- NAS-Systeme mit Symcon (z. B. Synology, QNAP)
 
-- Eine neue Logzeile beginnt immer mit einem Zeitstempel (`DD.MM.YYYY`)
-- Alle folgenden Zeilen ohne Zeitstempel werden als Fortsetzung interpretiert
-- Diese Zeilen werden intern zusammengeführt und gemeinsam dargestellt
+Je nach Betriebssystem wird automatisch der optimale Verarbeitungsweg gewählt.
+
+### Unterschiede je Betriebssystem
+
+**Linux / Unix**
+- Nutzung von Systemwerkzeugen (`tail`, `grep`, `awk`, `wc`)
+- Sehr hohe Performance bei großen Logdateien
+- Optional Verwendung von `tac`
+
+**Windows**
+- Optimiertes blockweises Rückwärtslesen per PHP
+- Keine externen Tools notwendig
+
+**macOS / Docker / minimalistische Systeme**
+- Nutzung vorhandener Unix-Tools
+- Automatische Fallbacks wenn Tools fehlen
+
+---
+
+## Verwendung von `tac`
+
+Auf Unix-Systemen wird optional das Kommando `tac` verwendet, um Logzeilen effizient rückwärts auszugeben.
+
+- Wenn `tac` vorhanden ist → wird es automatisch genutzt
+- Wenn `tac` nicht vorhanden ist → wird automatisch ein AWK-Fallback verwendet
+- Keine manuelle Konfiguration erforderlich
+
+Hinweis:
+- Linux: `tac` meist vorhanden
+- macOS: standardmäßig **nicht** vorhanden
+- Docker: abhängig vom Base-Image
+- BusyBox / minimal Systeme: meist nicht vorhanden
 
 ---
 
@@ -94,9 +129,8 @@ https://www.symcon.de/service/dokumentation/konzepte/instanzen/#Instanz_hinzufü
 
 ### __Konfigurationsseite__:
 
-Name           | Beschreibung
--------------- | ------------------
-LogFilePath    | Pfad zur auszuwertenden Logdatei (z. B. `/var/log/symcon/logfile.log`). Wenn leer, wird automatisch das Standard-Logverzeichnis verwendet.
+Es sind keine Elemente zum Konfigurieren vorhanden.
+Es kann alles auf der Tile Visu Frontseite von Symcon konfiguriert werden.
 
 ---
 
@@ -112,36 +146,47 @@ Die gesamte Darstellung erfolgt direkt über die Visualisierung.
 
 Die Visualisierung stellt eine interaktive Oberfläche zur Analyse der Logdaten bereit.
 
-### Funktionen:
+### Funktionen
 
-- **Filterbereich**
-  - ID
-  - Typ (Log-Level)
-  - Sender
-  - Freitextsuche in Meldungen  
+**Filterbereich**
+- Logdatei-Auswahl  
+- Zeilen pro Seite  
+- Objekt-ID Filter  
+- Meldungstyp (Multi-Select)  
+- Sender (Multi-Select)  
+- Freitextsuche  
 
-- **Optionen**
-  - Filtermodus (UND / ODER)
-  - Limit der angezeigten Einträge
-  - Theme-Auswahl (Dark / Light)
-  - Auto-Refresh (alle 5 Sekunden)
+**Bedienelemente**
+- Filter anwenden  
+- Aktualisieren  
+- Navigation zu älteren / neueren Einträgen  
+- Theme-Auswahl (Dark / Light)  
+- Kompaktmodus  
+- Auswahl des Betriebsmodus (Standard / System / Ultra)  
 
-- **Aktionen**
-  - Aktualisieren der Daten
-  - Export als CSV-Datei  
+**Statusanzeige**
+- Aktuelle Datei  
+- Dateigröße  
+- Trefferbereich  
+- Gesamtanzahl Treffer  
+- Ladezeit Tabelle  
+- Ladezeit Filter  
+- Zeitstempel der Daten  
 
-- **Tabelle**
-  - Datum/Uhrzeit
-  - ID
-  - Typ
-  - Sender
-  - Meldung  
-  - Mehrzeilige Einträge (z. B. Stacktraces) werden innerhalb einer Zelle zusammenhängend dargestellt
-  - Zeilenumbrüche innerhalb eines Logeintrags bleiben erhalten und werden visuell eingerückt dargestellt
+**Tabelle**
+- Zeitstempel  
+- Objekt-ID  
+- Meldungstyp  
+- Sender  
+- Meldung  
+- Scrollbarer Tabellenbereich  
+- Sticky Tabellenkopf  
 
-- **Statusanzeige**
-  - Anzahl gefilterter Einträge
-  - Anzahl angezeigter Einträge  
+**Ladeanzeige**
+- Anzeige während:
+  - Tabellenladung  
+  - Trefferzählung  
+  - Filtermetadaten-Ermittlung  
 
 ---
 
@@ -159,12 +204,11 @@ Die Kommunikation erfolgt ausschließlich über die interne Visualisierung (`Req
 
 Ansicht im Webfront der neuen Kacheloberfläche - hier DarkMode:
 
-![Konfiguration](imgs/Screenshot_FrontendDarkMode.png)
-
+![Konfiguration](imgs/Screenshot_FrontendDarkMode1.png)
 
 Ansicht im Webfront der neuen Kacheloberfläche - hier LightMode:
 
-![Konfiguration](imgs/Screenshot_FrontendLightMode.png)
+![Konfiguration](imgs/Screenshot_FrontendLightMode1.png)
 
 ---
 
@@ -172,17 +216,13 @@ Ansicht im Webfront der neuen Kacheloberfläche - hier LightMode:
 
 Ansicht im Konfigurationsformular des Moduls:
 
-![Konfiguration](imgs/Screenshot_BackendKonfig.png)
-
+![Konfiguration](imgs/Screenshot_BackendKonfig1.png)
 
 ---
 
 ## Hinweise
 
-- Große Logdateien können die Ladezeit beeinflussen  
-- Für optimale Performance empfiehlt sich die Nutzung eines sinnvollen Limits  
-- Der CSV-Export enthält alle aktuell gefilterten Datensätze  
-- Nicht alle Inhalte in der Logdatei entsprechen dem standardisierten Logformat.
-  Das Modul ist darauf ausgelegt, auch abweichende bzw. mehrzeilige Einträge korrekt zu verarbeiten und darzustellen.
-
---- 
+- Große Logdateien werden seitenweise geladen  
+- Filteroptionen werden dynamisch aus der Logdatei ermittelt  
+- Trefferanzahl wird asynchron berechnet  
+- Der Ultra-Modus ist aktuell noch reserviert für zukünftige Erweiterungen  
