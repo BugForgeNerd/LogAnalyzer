@@ -156,6 +156,12 @@ Die Visualisierung stellt eine interaktive Oberfläche zur Analyse der Logdaten 
 - Sender (Multi-Select)  
 - Freitextsuche  
 
+**Direkte Filterübernahme**
+- Doppelklick auf eine Objekt-ID in der Tabelle übernimmt den Wert in den Objekt-ID-Filter  
+- Mehrere Objekt-IDs können durch mehrfachen Doppelklick gesammelt werden  
+- Bereits vorhandene Einträge werden nicht doppelt übernommen  
+- Filter wird erst nach Klick auf „Filter anwenden“ aktiv
+
 **Bedienelemente**
 - Filter anwenden  
 - Aktualisieren  

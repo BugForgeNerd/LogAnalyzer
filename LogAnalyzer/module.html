@@ -808,6 +808,31 @@
         }
     }
 
+	// Um per Doppelklick IDs in den Filter zu nehmen
+    function uebernehmeObjektIdInFilter(objektId) {
+        const input = document.getElementById('objektIdFilter');
+        if (!input) {
+            return;
+        }
+
+        const neuerWert = String(objektId || '').trim();
+        if (neuerWert === '') {
+            return;
+        }
+
+        const vorhandene = input.value
+            .split(/[\s,;]+/)
+            .map(v => v.trim())
+            .filter(Boolean);
+
+        if (!vorhandene.includes(neuerWert)) {
+            vorhandene.push(neuerWert);
+        }
+
+        input.value = vorhandene.join(', ');
+    }
+
+
     // Rendert die vollständige Oberfläche neu
     function render(data) {
         currentData = data || {};
@@ -950,16 +975,29 @@
         if (rows.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="empty">Keine passenden Logzeilen gefunden.</td></tr>';
         } else {
-            rows.forEach((row) => {
-                const tr = document.createElement('tr');
-                tr.innerHTML =
-                    '<td class="col-zeit">' + escapeHtml(row.zeitstempel || '') + '</td>' +
-                    '<td class="col-objektid">' + escapeHtml(row.objektId || '') + '</td>' +
-                    '<td class="col-typ">' + escapeHtml(row.typ || '') + '</td>' +
-                    '<td class="col-sender">' + escapeHtml(row.sender || '') + '</td>' +
-                    '<td>' + escapeHtml(row.meldung || '') + '</td>';
-                tbody.appendChild(tr);
-            });
+			
+			// Um per Doppelklick IDs in den Filter zu nehmen
+			rows.forEach((row) => {
+				const tr = document.createElement('tr');
+				tr.innerHTML =
+					'<td class="col-zeit">' + escapeHtml(row.zeitstempel || '') + '</td>' +
+					'<td class="col-objektid">' + escapeHtml(row.objektId || '') + '</td>' +
+					'<td class="col-typ">' + escapeHtml(row.typ || '') + '</td>' +
+					'<td class="col-sender">' + escapeHtml(row.sender || '') + '</td>' +
+					'<td>' + escapeHtml(row.meldung || '') + '</td>';
+
+				const objektIdCell = tr.querySelector('.col-objektid');
+				if (objektIdCell) {
+					objektIdCell.style.cursor = 'pointer';
+					objektIdCell.title = 'Doppelklick übernimmt die ObjektID in den Filter';
+
+					objektIdCell.addEventListener('dblclick', () => {
+						uebernehmeObjektIdInFilter(row.objektId || '');
+					});
+				}
+
+				tbody.appendChild(tr);
+			});
         }
 
         const aktuelleSeite = Number(status.seite || 0);
