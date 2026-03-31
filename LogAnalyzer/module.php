@@ -223,57 +223,6 @@ class LogAnalyzer extends IPSModuleStrict
     }
 
     /**
-     * erstelleInitialeTileDaten
-     *
-     * Liefert nur leichte Initialdaten für den ersten Aufbau der Tile,
-     * ohne sofort die Tabelle synchron zu laden.
-     *
-     * Parameter: keine
-     * Rückgabewert: array
-     */
-    private function erstelleInitialeTileDaten(): array
-    {
-        $status = $this->leseStatus();
-        $logDatei = $this->ReadPropertyString('LogDatei');
-        $filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
-        $betriebsmodus = $this->ermittleAktivenModus();
-
-        $status['tabellenLadungLaeuft'] = true;
-        $status['tabellenLadungText'] = 'Initialisiere Ansicht …';
-        $status['trefferGesamt'] = -1;
-        $status['zaehlungLaeuft'] = false;
-        $status['letzteTabellenLadezeitMs'] = 0;
-
-        return [
-            'ok'                     => true,
-            'fehlermeldung'          => '',
-            'status'                 => $status,
-            'maxZeilen'              => $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50)),
-            'logDatei'               => $logDatei,
-            'dateiGroesse'           => is_file($logDatei) ? $this->formatiereDateigroesse((int) filesize($logDatei)) : '',
-            'zeilen'                 => [],
-            'hatWeitere'             => false,
-            'zeitstempel'            => date('Y-m-d H:i:s'),
-            'trefferGesamt'          => -1,
-            'zaehlungLaeuft'         => false,
-            'bereichVon'             => 0,
-            'bereichBis'             => 0,
-            'ladezeitMs'             => 0,
-            'filterLadezeitMs'       => (int) ($filterMetadaten['ladezeitMs'] ?? 0),
-            'verfuegbareFilterTypen' => $filterMetadaten['verfuegbareFilterTypen'] ?? [],
-            'verfuegbareSender'      => $filterMetadaten['verfuegbareSender'] ?? [],
-            'filterMetadatenGeladen' => (bool) ($filterMetadaten['geladen'] ?? false),
-            'filterMetadatenLaeuft'  => false,
-            'verfuegbareLogdateien'  => $this->ermittleVerfuegbareLogdateien(),
-            'aktuelleLogDatei'       => $logDatei,
-            'tabellenLadungLaeuft'   => true,
-            'tabellenLadungText'     => 'Initialisiere Ansicht …',
-            'betriebsmodus'          => $betriebsmodus,
-            'initialerAufbau'        => true
-        ];
-    }
-
-    /**
      * GetVisualizationTile
      *
      * Liefert die HTML-Visualisierung für die Tile-Ansicht.
@@ -314,12 +263,12 @@ class LogAnalyzer extends IPSModuleStrict
         }
 
         try {
-            $initialDaten = $this->erstelleInitialeTileDaten();
+            $initialDaten = $this->erstelleVisualisierungsDaten();
 
             $this->SendDebug(
                 'TileInit',
                 sprintf(
-                    'phase=ende modus=%s datei=%s ok=%s zeilen=%d dauerMs=%d initial=true',
+                    'phase=ende modus=%s datei=%s ok=%s zeilen=%d dauerMs=%d',
                     $modus,
                     basename($logDatei),
                     ($initialDaten['ok'] ?? false) ? 'true' : 'false',
@@ -964,12 +913,6 @@ class LogAnalyzer extends IPSModuleStrict
 			$meta = $this->leseFilterMetadatenRoh();
 			$meta['laedt'] = false;
 			$this->schreibeFilterMetadaten($meta);
-
-			$status = $this->leseStatus();
-			$status['tabellenLadungLaeuft'] = false;
-			$status['tabellenLadungText'] = '';
-			$this->schreibeStatus($status);
-
 			$this->aktualisiereVisualisierung();
 			return;
 		}
@@ -988,12 +931,6 @@ class LogAnalyzer extends IPSModuleStrict
 			$meta['laedt'] = false;
 			$meta['signatur'] = '';
 			$this->schreibeFilterMetadaten($meta);
-
-			$status = $this->leseStatus();
-			$status['tabellenLadungLaeuft'] = false;
-			$status['tabellenLadungText'] = '';
-			$this->schreibeStatus($status);
-
 			$this->aktualisiereVisualisierungNurStatus('ladeFilter-datei-fehlt');
 			return;
 		}
@@ -1019,12 +956,6 @@ class LogAnalyzer extends IPSModuleStrict
 				),
 				0
 			);
-
-			$status = $this->leseStatus();
-			$status['tabellenLadungLaeuft'] = false;
-			$status['tabellenLadungText'] = '';
-			$this->schreibeStatus($status);
-
 			$this->aktualisiereVisualisierungNurStatus('ladeFilter-cache');
 			return;
 		}
@@ -1044,12 +975,6 @@ class LogAnalyzer extends IPSModuleStrict
 
 		$meta['laedt'] = true;
 		$this->schreibeFilterMetadaten($meta);
-
-		$status = $this->leseStatus();
-		$status['tabellenLadungLaeuft'] = false;
-		$status['tabellenLadungText'] = '';
-		$this->schreibeStatus($status);
-
 		$this->aktualisiereVisualisierungNurStatus('ladeFilter-start');
 
 		$start = microtime(true);
@@ -1069,9 +994,6 @@ class LogAnalyzer extends IPSModuleStrict
 		$this->schreibeFilterMetadaten($meta);
 
 		$status = $this->leseStatus();
-		$status['tabellenLadungLaeuft'] = false;
-		$status['tabellenLadungText'] = '';
-
 		if (
 			$this->ermittleAktivenModus() !== 'standard' &&
 			!$this->hatAktiveFilter($status) &&
@@ -1082,10 +1004,9 @@ class LogAnalyzer extends IPSModuleStrict
 				$status['dateiGroesseCache'] = $dateiGroesse;
 				$status['dateiMTimeCache'] = $dateiMTime;
 				$status['zaehlSignatur'] = $this->ermittleZaehlsignatur($status);
+				$this->schreibeStatus($status);
 			}
 		}
-
-		$this->schreibeStatus($status);
 
 		$this->SendDebug('FilterMetadaten',
 			sprintf(
@@ -1127,8 +1048,6 @@ class LogAnalyzer extends IPSModuleStrict
 
 			$status = $this->leseStatus();
 			$status['zaehlungLaeuft'] = false;
-			$status['tabellenLadungLaeuft'] = false;
-			$status['tabellenLadungText'] = '';
 			$this->schreibeStatus($status);
 			$this->aktualisiereVisualisierung();
 			return;
@@ -1141,8 +1060,6 @@ class LogAnalyzer extends IPSModuleStrict
 			$aktuellerStatus = $this->leseStatus();
 			$aktuellerStatus['trefferGesamt'] = 0;
 			$aktuellerStatus['zaehlungLaeuft'] = false;
-			$aktuellerStatus['tabellenLadungLaeuft'] = false;
-			$aktuellerStatus['tabellenLadungText'] = '';
 			$this->schreibeStatus($aktuellerStatus);
 			$this->aktualisiereVisualisierungNurStatus('zaehleTreffer-datei-fehlt');
 			return;
@@ -1168,12 +1085,6 @@ class LogAnalyzer extends IPSModuleStrict
 				),
 				0
 			);
-
-			$aktuellerStatus = $this->leseStatus();
-			$aktuellerStatus['tabellenLadungLaeuft'] = false;
-			$aktuellerStatus['tabellenLadungText'] = '';
-			$this->schreibeStatus($aktuellerStatus);
-
 			$this->aktualisiereVisualisierungNurStatus('zaehleTreffer-cache-status');
 			return;
 		}
@@ -1186,8 +1097,6 @@ class LogAnalyzer extends IPSModuleStrict
 				$aktuellerStatus = $this->leseStatus();
 				$aktuellerStatus['trefferGesamt'] = $gesamtMeta;
 				$aktuellerStatus['zaehlungLaeuft'] = false;
-				$aktuellerStatus['tabellenLadungLaeuft'] = false;
-				$aktuellerStatus['tabellenLadungText'] = '';
 				$aktuellerStatus['dateiGroesseCache'] = $dateiGroesse;
 				$aktuellerStatus['dateiMTimeCache'] = $dateiMTime;
 				$aktuellerStatus['zaehlSignatur'] = $signatur;
@@ -1223,8 +1132,6 @@ class LogAnalyzer extends IPSModuleStrict
 				$aktuellerStatus = $this->leseStatus();
 				$aktuellerStatus['trefferGesamt'] = $anzahl;
 				$aktuellerStatus['zaehlungLaeuft'] = false;
-				$aktuellerStatus['tabellenLadungLaeuft'] = false;
-				$aktuellerStatus['tabellenLadungText'] = '';
 				$aktuellerStatus['dateiGroesseCache'] = $dateiGroesse;
 				$aktuellerStatus['dateiMTimeCache'] = $dateiMTime;
 				$aktuellerStatus['zaehlSignatur'] = $signatur;
@@ -1261,8 +1168,6 @@ class LogAnalyzer extends IPSModuleStrict
 
 		$aktuellerStatus = $this->leseStatus();
 		$aktuellerStatus['zaehlungLaeuft'] = true;
-		$aktuellerStatus['tabellenLadungLaeuft'] = false;
-		$aktuellerStatus['tabellenLadungText'] = '';
 		$this->schreibeStatus($aktuellerStatus);
 		$this->aktualisiereVisualisierungNurStatus('zaehleTreffer-start');
 
@@ -1273,8 +1178,6 @@ class LogAnalyzer extends IPSModuleStrict
 		$status = $this->leseStatus();
 		$status['trefferGesamt'] = $anzahl;
 		$status['zaehlungLaeuft'] = false;
-		$status['tabellenLadungLaeuft'] = false;
-		$status['tabellenLadungText'] = '';
 		$status['dateiGroesseCache'] = $dateiGroesse;
 		$status['dateiMTimeCache'] = $dateiMTime;
 		$status['zaehlSignatur'] = $signatur;

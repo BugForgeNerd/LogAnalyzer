@@ -752,7 +752,6 @@
     let lastCountSignature = '';
     let filterMetaRequestRunning = false;
     let lastFilterMetaSignature = '';
-    let initialLoadTriggered = false;
 
     // Zuordnung zwischen versteckten nativen Selects und sichtbaren Custom-Selects
     const CUSTOM_SELECT_MAPPINGS = [
@@ -1093,24 +1092,6 @@
         const tabellenText = String(currentData.tabellenLadungText || status.tabellenLadungText || '').trim();
         const laedtTreffer = Boolean(currentData.zaehlungLaeuft);
         const laedtFilter = Boolean(currentData.filterMetadatenLaeuft);
-        const istInitialerAufbau = currentData.initialerAufbau === true;
-
-		// Nach dem ersten leichten Aufbau soll die Ansicht einmalig selbst Aktualisieren anstoßen.
-        if (
-            !initialLoadTriggered &&
-            currentData.initialerAufbau === true
-        ) {
-            initialLoadTriggered = true;
-
-            window.setTimeout(() => {
-                try {
-                    requestAction('Aktualisieren', '');
-                } catch (e) {
-                    console.error('[LogAnalyzer] Fehler beim Initial-Reload', e);
-                }
-            }, 0);
-        }
-		// Nach dem ersten leichten Aufbau soll die Ansicht einmalig selbst Aktualisieren anstoßen.
 
         if (laedtTabelle || laedtTreffer || laedtFilter) {
             statusActivity.classList.add('active');
@@ -1159,24 +1140,16 @@
         // Tabellen-Ladezustand hat Vorrang vor Status- und Leerdarstellung
         if (laedtTabelle && rows.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="empty">Lade Daten …</td></tr>';
-
-            if (!istInitialerAufbau) {
-                triggerCountIfNeeded(currentData);
-                triggerFilterMetaIfNeeded(currentData);
-            }
-
+            triggerCountIfNeeded(currentData);
+            triggerFilterMetaIfNeeded(currentData);
             return;
         }
 
         // Reiner Statuslauf ohne Tabelleninhalt
         if (!laedtTabelle && rows.length === 0 && (laedtTreffer || laedtFilter)) {
             tbody.innerHTML = '<tr><td colspan="5" class="empty">Status wird aktualisiert …</td></tr>';
-
-            if (!istInitialerAufbau) {
-                triggerCountIfNeeded(currentData);
-                triggerFilterMetaIfNeeded(currentData);
-            }
-
+            triggerCountIfNeeded(currentData);
+            triggerFilterMetaIfNeeded(currentData);
             return;
         }
 
@@ -1222,10 +1195,8 @@
             document.getElementById('btnVor').disabled = !currentData.hatWeitere;
         }
 
-        if (!istInitialerAufbau) {
-            triggerCountIfNeeded(currentData);
-            triggerFilterMetaIfNeeded(currentData);
-        }
+        triggerCountIfNeeded(currentData);
+        triggerFilterMetaIfNeeded(currentData);
     }
 
     // Startet die Trefferzählung bei Bedarf
