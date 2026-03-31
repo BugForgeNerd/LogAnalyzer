@@ -17,7 +17,6 @@
         /* Erzwingt Dark-Theme für native Eingabeelemente */
         html.theme-dark,
         body.theme-dark,
-        body.theme-dark select,
         body.theme-dark input {
             color-scheme: dark;
         }
@@ -25,7 +24,6 @@
         /* Erzwingt Light-Theme für native Eingabeelemente */
         html.theme-light,
         body.theme-light,
-        body.theme-light select,
         body.theme-light input {
             color-scheme: light;
         }
@@ -126,7 +124,8 @@
         }
 
         /* Einheitliche Darstellung für Eingabefelder */
-        input, select {
+        input,
+        select {
             width: 100%;
             min-height: 34px;
             border-radius: var(--radius-sm);
@@ -146,10 +145,17 @@
         }
 
         /* Fokuszustand für Eingabeelemente */
-        input:focus, select:focus, button:focus {
+        input:focus,
+        select:focus,
+        button:focus {
             outline: none;
             border-color: rgba(77, 163, 255, 0.5);
             box-shadow: 0 0 0 3px rgba(77, 163, 255, 0.15);
+        }
+
+        /* Versteckte native Selects als Datenspeicher für Custom-Selects */
+        .native-select-hidden {
+            display: none !important;
         }
 
         /* Zeile für Aktionsbuttons und Inline-Auswahlfelder */
@@ -164,33 +170,16 @@
         .button-row .inline-control {
             min-width: 130px;
             max-width: 170px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
         }
 
         /* Beschriftung vor Einstellungen */
-		.button-row .inline-control {
-			min-width: 130px;
-			max-width: 170px;
-			display: inline-flex;
-			align-items: center;
-			gap: 6px;
-			white-space: nowrap;
-		}
-
-		.button-row .inline-control span {
-			display: inline-block;
-			color: var(--muted);
-			font-size: 12px;
-		}
-
-		.button-row .inline-control select {
-			width: auto;
-			flex: 1 1 auto;
-		}
-
-        /* Kompaktere Selects in der Button-Zeile */
-        .button-row .inline-control select {
-            min-height: 30px;
-            padding: 5px 8px;
+        .button-row .inline-control span {
+            display: inline-block;
+            color: var(--muted);
             font-size: 12px;
         }
 
@@ -226,6 +215,33 @@
             cursor: default;
             transform: none;
         }
+
+
+
+
+		.custom-select,
+		.custom-select-button {
+			min-width: 0;
+		}
+
+		.custom-select-button {
+			overflow: hidden;
+		}
+
+		.custom-select-button-text {
+			flex: 1 1 auto;
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.toolbar-grid {
+			grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+		}
+
+
+
 
         /* Metadatenzeile unterhalb der Toolbar */
         .meta {
@@ -317,12 +333,11 @@
             top: 0;
             z-index: 2;
             text-align: left;
-            padding: 10px;
             background: var(--accent);
             color: #fff;
             border-bottom: 1px solid var(--table-line-strong);
             border-right: 1px solid var(--table-line);
-			padding: 6px 8px;
+            padding: 6px 8px;
         }
 
         /* Letzte Tabellenkopfzelle ohne rechte Linie */
@@ -377,13 +392,15 @@
             color: var(--muted);
         }
 
-        /* Wrapper für Mehrfachauswahl */
-        .multi-select {
+        /* Wrapper für Mehrfachauswahl und einfache Custom-Selects */
+        .multi-select,
+        .custom-select {
             position: relative;
         }
 
-        /* Button für Mehrfachauswahl */
-        .multi-select-button {
+        /* Button für Mehrfachauswahl und einfache Custom-Selects */
+        .multi-select-button,
+        .custom-select-button {
             width: 100%;
             min-height: 34px;
             border-radius: var(--radius-sm);
@@ -395,18 +412,21 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            box-shadow: none;
         }
 
-        /* Pfeilsymbol am Mehrfachauswahl-Button */
-        .multi-select-button::after {
+        /* Pfeilsymbol am Auswahl-Button */
+        .multi-select-button::after,
+        .custom-select-button::after {
             content: "▾";
             opacity: 0.8;
             margin-left: 10px;
             flex: 0 0 auto;
         }
 
-        /* Dropdown für Mehrfachauswahl */
-        .multi-select-dropdown {
+        /* Dropdown für Mehrfachauswahl und einfache Custom-Selects */
+        .multi-select-dropdown,
+        .custom-select-dropdown {
             position: absolute;
             top: calc(100% + 4px);
             left: 0;
@@ -420,13 +440,15 @@
             box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
         }
 
-        /* Sichtbarer Zustand des Mehrfachauswahl-Dropdowns */
-        .multi-select.open .multi-select-dropdown {
+        /* Sichtbarer Zustand des Dropdowns */
+        .multi-select.open .multi-select-dropdown,
+        .custom-select.open .custom-select-dropdown {
             display: block;
         }
 
         /* Optionsliste im Dropdown */
-        .multi-select-options {
+        .multi-select-options,
+        .custom-select-options {
             display: grid;
             gap: 6px;
             max-height: 220px;
@@ -434,12 +456,29 @@
         }
 
         /* Einzelne Option im Dropdown */
-        .multi-select-option {
+        .multi-select-option,
+        .custom-select-option {
             display: flex;
             align-items: center;
             gap: 8px;
             color: var(--text);
             font-size: 13px;
+        }
+
+        /* Klickbare Option für einfache Custom-Selects */
+        .custom-select-option {
+            width: 100%;
+            border: 0;
+            background: transparent;
+            padding: 6px 8px;
+            border-radius: 6px;
+            text-align: left;
+            min-height: 0;
+        }
+
+        .custom-select-option:hover,
+        .custom-select-option.is-selected {
+            background: var(--bg-soft);
         }
 
         /* Checkbox-Stil im Mehrfachauswahlfeld */
@@ -448,6 +487,19 @@
             min-height: 0;
             margin: 0;
             padding: 0;
+        }
+
+        /* Kompaktere Selects in der Button-Zeile */
+        .button-row .inline-control .custom-select {
+            width: auto;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .button-row .inline-control .custom-select-button {
+            min-height: 30px;
+            padding: 5px 8px;
+            font-size: 12px;
         }
 
         /* Kompakter Modus für Toolbar */
@@ -470,7 +522,8 @@
         /* Kompakter Modus für Eingabefelder */
         body.compact input,
         body.compact select,
-        body.compact .multi-select-button {
+        body.compact .multi-select-button,
+        body.compact .custom-select-button {
             min-height: 30px;
             padding: 6px 8px;
             font-size: 12px;
@@ -505,8 +558,9 @@
             padding: 6px 8px;
         }
 
-        /* Kompakter Modus für Mehrfachauswahl-Optionen */
-        body.compact .multi-select-option {
+        /* Kompakter Modus für Auswahloptionen */
+        body.compact .multi-select-option,
+        body.compact .custom-select-option {
             font-size: 12px;
         }
     </style>
@@ -525,13 +579,19 @@
                 <!-- Auswahl der Logdatei -->
                 <label>
                     Logdatei
-                    <select id="logDateiSelect"></select>
+                    <select id="logDateiSelect" class="native-select-hidden"></select>
+                    <div class="custom-select" id="logDateiCustom">
+                        <button type="button" class="custom-select-button" id="logDateiCustomButton">-</button>
+                        <div class="custom-select-dropdown" id="logDateiCustomDropdown">
+                            <div class="custom-select-options" id="logDateiCustomOptions"></div>
+                        </div>
+                    </div>
                 </label>
 
                 <!-- Auswahl der Seitengröße -->
                 <label>
                     Zeilen pro Seite
-                    <select id="maxZeilenSelect">
+                    <select id="maxZeilenSelect" class="native-select-hidden">
                         <option value="20">20</option>
                         <option value="50">50</option>
                         <option value="100">100</option>
@@ -541,6 +601,12 @@
                         <option value="2000">2000</option>
                         <option value="3000">3000</option>
                     </select>
+                    <div class="custom-select" id="maxZeilenCustom">
+                        <button type="button" class="custom-select-button" id="maxZeilenCustomButton">50</button>
+                        <div class="custom-select-dropdown" id="maxZeilenCustomDropdown">
+                            <div class="custom-select-options" id="maxZeilenCustomOptions"></div>
+                        </div>
+                    </div>
                 </label>
 
                 <!-- Filter nach Objekt-ID -->
@@ -583,34 +649,51 @@
 
                 <!-- Theme-Auswahl -->
                 <label class="inline-control">
-					<span>Theme:</span>
-                    <select id="themeSelect">
+                    <span>Theme:</span>
+                    <select id="themeSelect" class="native-select-hidden">
                         <option value="dark">Dark</option>
                         <option value="light">Light</option>
                     </select>
+                    <div class="custom-select" id="themeCustom">
+                        <button type="button" class="custom-select-button" id="themeCustomButton">Dark</button>
+                        <div class="custom-select-dropdown" id="themeCustomDropdown">
+                            <div class="custom-select-options" id="themeCustomOptions"></div>
+                        </div>
+                    </div>
                 </label>
 
                 <!-- Umschaltung Standard/Kompakt -->
-
                 <label class="inline-control">
-					<span>UI:</span>
-                    <select id="kompaktSelect">
+                    <span>UI:</span>
+                    <select id="kompaktSelect" class="native-select-hidden">
                         <option value="0">Standard</option>
                         <option value="1">Kompakt</option>
                     </select>
+                    <div class="custom-select" id="kompaktCustom">
+                        <button type="button" class="custom-select-button" id="kompaktCustomButton">Standard</button>
+                        <div class="custom-select-dropdown" id="kompaktCustomDropdown">
+                            <div class="custom-select-options" id="kompaktCustomOptions"></div>
+                        </div>
+                    </div>
                 </label>
-				
-				<!-- Auswahl des Betriebsmodus -->
-				<label class="inline-control">
-					<span>Mode:</span>
-					<select id="betriebsmodusSelect">
-						<option value="standard">Standard</option>
-						<option value="system">System</option>
-						<option value="ultra">Ultra</option>
-					</select>
-				</label>
-				
-				<!-- Filterungen anwenden und Aktualisieren sowie Blättern -->
+
+                <!-- Auswahl des Betriebsmodus -->
+                <label class="inline-control">
+                    <span>Mode:</span>
+                    <select id="betriebsmodusSelect" class="native-select-hidden">
+                        <option value="standard">Standard</option>
+                        <option value="system">System</option>
+                        <option value="ultra">Ultra</option>
+                    </select>
+                    <div class="custom-select" id="betriebsmodusCustom">
+                        <button type="button" class="custom-select-button" id="betriebsmodusCustomButton">Standard</button>
+                        <div class="custom-select-dropdown" id="betriebsmodusCustomDropdown">
+                            <div class="custom-select-options" id="betriebsmodusCustomOptions"></div>
+                        </div>
+                    </div>
+                </label>
+
+                <!-- Filterungen anwenden und Aktualisieren sowie Blättern -->
                 <button id="btnAnwenden">Filter anwenden</button>
                 <button id="btnReload" class="secondary">Aktualisieren</button>
                 <button id="btnZurueck" class="secondary">Neuere</button>
@@ -619,16 +702,16 @@
             </div>
         </div>
 
-            <!-- Metadaten zur aktuellen Anzeige -->
-			<div class="meta">
-				<div id="metaDatei">Datei: -</div>
-				<div id="metaGroesse">Größe: -</div>
-				<div id="metaSeite">Seite: 1</div>
-				<div id="metaTreffer">Treffer: -</div>
-				<div id="metaLadezeit">Ladezeit Tabelle: -</div>
-				<div id="metaFilterLadezeit">Ladezeit Filter: -</div>
-				<div id="metaStand">Stand: -</div>
-			</div>
+        <!-- Metadaten zur aktuellen Anzeige -->
+        <div class="meta">
+            <div id="metaDatei">Datei: -</div>
+            <div id="metaGroesse">Größe: -</div>
+            <div id="metaSeite">Seite: 1</div>
+            <div id="metaTreffer">Treffer: -</div>
+            <div id="metaLadezeit">Ladezeit Tabelle: -</div>
+            <div id="metaFilterLadezeit">Ladezeit Filter: -</div>
+            <div id="metaStand">Stand: -</div>
+        </div>
 
         <!-- Ladebalken für Tabellen- und Statusvorgänge -->
         <div id="statusActivity" class="status-activity">
@@ -669,6 +752,16 @@
     let lastCountSignature = '';
     let filterMetaRequestRunning = false;
     let lastFilterMetaSignature = '';
+    let initialLoadTriggered = false;
+
+    // Zuordnung zwischen versteckten nativen Selects und sichtbaren Custom-Selects
+    const CUSTOM_SELECT_MAPPINGS = [
+        { selectId: 'logDateiSelect', customId: 'logDateiCustom' },
+        { selectId: 'maxZeilenSelect', customId: 'maxZeilenCustom' },
+        { selectId: 'themeSelect', customId: 'themeCustom' },
+        { selectId: 'kompaktSelect', customId: 'kompaktCustom' },
+        { selectId: 'betriebsmodusSelect', customId: 'betriebsmodusCustom' }
+    ];
 
     // Escaped HTML-Sonderzeichen für sichere Ausgabe
     function escapeHtml(value) {
@@ -749,6 +842,102 @@
         button.textContent = selected.length + ' ausgewählt';
     }
 
+    // Synchronisiert einen sichtbaren Custom-Select mit seinem versteckten nativen Select
+    function syncCustomSelect(selectId, customId) {
+        const select = document.getElementById(selectId);
+        const custom = document.getElementById(customId);
+
+        if (!select || !custom) {
+            return;
+        }
+
+        const button = custom.querySelector('.custom-select-button');
+        const optionsContainer = custom.querySelector('.custom-select-options');
+        const selectedValue = String(select.value ?? '');
+        const selectOptions = Array.from(select.options || []);
+
+        optionsContainer.innerHTML = '';
+
+        let selectedLabel = '';
+
+        selectOptions.forEach((option) => {
+            const value = String(option.value ?? '');
+            const label = option.textContent || value;
+
+            if (value === selectedValue) {
+                selectedLabel = label;
+            }
+
+            const optionButton = document.createElement('button');
+            optionButton.type = 'button';
+            optionButton.className = 'custom-select-option' + (value === selectedValue ? ' is-selected' : '');
+            optionButton.textContent = label;
+            optionButton.dataset.value = value;
+
+            optionButton.addEventListener('click', () => {
+                const changed = select.value !== value;
+                select.value = value;
+                syncCustomSelect(selectId, customId);
+                custom.classList.remove('open');
+
+                if (changed) {
+                    select.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            });
+
+            optionsContainer.appendChild(optionButton);
+        });
+
+		const finalLabel = selectedLabel || (selectOptions[0] ? (selectOptions[0].textContent || selectOptions[0].value) : '-');
+
+		button.innerHTML = '';
+		const textSpan = document.createElement('span');
+		textSpan.className = 'custom-select-button-text';
+		textSpan.textContent = finalLabel;
+		button.appendChild(textSpan);
+    }
+
+    // Synchronisiert alle sichtbaren Custom-Selects mit den nativen Selects
+    function syncAllCustomSelects() {
+        CUSTOM_SELECT_MAPPINGS.forEach(({ selectId, customId }) => {
+            syncCustomSelect(selectId, customId);
+        });
+    }
+
+    // Initialisiert die Bedienung eines einfachen Custom-Selects
+    function initCustomSelect(selectId, customId) {
+        const select = document.getElementById(selectId);
+        const custom = document.getElementById(customId);
+
+        if (!select || !custom) {
+            return;
+        }
+
+        const button = custom.querySelector('.custom-select-button');
+
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+
+            document.querySelectorAll('.custom-select.open').forEach((element) => {
+                if (element !== custom) {
+                    element.classList.remove('open');
+                }
+            });
+
+            document.querySelectorAll('.multi-select.open').forEach((element) => {
+                element.classList.remove('open');
+            });
+
+            custom.classList.toggle('open');
+        });
+
+        select.addEventListener('change', () => {
+            syncCustomSelect(selectId, customId);
+        });
+
+        syncCustomSelect(selectId, customId);
+    }
+
     // Sammelt alle aktuellen Filterwerte aus der Oberfläche
     function collectFilterData() {
         return {
@@ -759,14 +948,9 @@
         };
     }
 
-    // Erzwingt ein visuelles Refresh nativer Selects
+    // Native Selects werden nicht mehr sichtbar verwendet
     function refreshNativeSelects() {
-        document.querySelectorAll('select').forEach((el) => {
-            const originalDisplay = el.style.display;
-            el.style.display = 'none';
-            void el.offsetHeight;
-            el.style.display = originalDisplay || '';
-        });
+        syncAllCustomSelects();
     }
 
     // Wendet Theme- und Kompakt-Einstellungen auf die Ansicht an
@@ -808,7 +992,7 @@
         }
     }
 
-	// Um per Doppelklick IDs in den Filter zu nehmen
+    // Um per Doppelklick IDs in den Filter zu nehmen
     function uebernehmeObjektIdInFilter(objektId) {
         const input = document.getElementById('objektIdFilter');
         if (!input) {
@@ -831,7 +1015,6 @@
 
         input.value = vorhandene.join(', ');
     }
-
 
     // Rendert die vollständige Oberfläche neu
     function render(data) {
@@ -888,8 +1071,9 @@
         document.getElementById('metaStand').textContent = 'Stand: ' + (currentData.zeitstempel || '-');
         document.getElementById('metaLadezeit').textContent = 'Ladezeit Tabelle: ' + ((currentData.ladezeitMs ?? 0)) + ' ms';
         document.getElementById('metaFilterLadezeit').textContent = 'Ladezeit Filter: ' + ((currentData.filterLadezeitMs ?? 0) > 0 ? (currentData.filterLadezeitMs + ' ms') : '-');
-		
-		document.getElementById('betriebsmodusSelect').value = currentData.betriebsmodus || 'standard';
+
+        document.getElementById('betriebsmodusSelect').value = currentData.betriebsmodus || 'standard';
+        syncAllCustomSelects();
 
         const metaTreffer = document.getElementById('metaTreffer');
         if (currentData.zaehlungLaeuft) {
@@ -909,6 +1093,24 @@
         const tabellenText = String(currentData.tabellenLadungText || status.tabellenLadungText || '').trim();
         const laedtTreffer = Boolean(currentData.zaehlungLaeuft);
         const laedtFilter = Boolean(currentData.filterMetadatenLaeuft);
+        const istInitialerAufbau = currentData.initialerAufbau === true;
+
+		// Nach dem ersten leichten Aufbau soll die Ansicht einmalig selbst Aktualisieren anstoßen.
+        if (
+            !initialLoadTriggered &&
+            currentData.initialerAufbau === true
+        ) {
+            initialLoadTriggered = true;
+
+            window.setTimeout(() => {
+                try {
+                    requestAction('Aktualisieren', '');
+                } catch (e) {
+                    console.error('[LogAnalyzer] Fehler beim Initial-Reload', e);
+                }
+            }, 0);
+        }
+		// Nach dem ersten leichten Aufbau soll die Ansicht einmalig selbst Aktualisieren anstoßen.
 
         if (laedtTabelle || laedtTreffer || laedtFilter) {
             statusActivity.classList.add('active');
@@ -957,16 +1159,24 @@
         // Tabellen-Ladezustand hat Vorrang vor Status- und Leerdarstellung
         if (laedtTabelle && rows.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="empty">Lade Daten …</td></tr>';
-            triggerCountIfNeeded(currentData);
-            triggerFilterMetaIfNeeded(currentData);
+
+            if (!istInitialerAufbau) {
+                triggerCountIfNeeded(currentData);
+                triggerFilterMetaIfNeeded(currentData);
+            }
+
             return;
         }
 
         // Reiner Statuslauf ohne Tabelleninhalt
         if (!laedtTabelle && rows.length === 0 && (laedtTreffer || laedtFilter)) {
             tbody.innerHTML = '<tr><td colspan="5" class="empty">Status wird aktualisiert …</td></tr>';
-            triggerCountIfNeeded(currentData);
-            triggerFilterMetaIfNeeded(currentData);
+
+            if (!istInitialerAufbau) {
+                triggerCountIfNeeded(currentData);
+                triggerFilterMetaIfNeeded(currentData);
+            }
+
             return;
         }
 
@@ -975,29 +1185,28 @@
         if (rows.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="empty">Keine passenden Logzeilen gefunden.</td></tr>';
         } else {
-			
-			// Um per Doppelklick IDs in den Filter zu nehmen
-			rows.forEach((row) => {
-				const tr = document.createElement('tr');
-				tr.innerHTML =
-					'<td class="col-zeit">' + escapeHtml(row.zeitstempel || '') + '</td>' +
-					'<td class="col-objektid">' + escapeHtml(row.objektId || '') + '</td>' +
-					'<td class="col-typ">' + escapeHtml(row.typ || '') + '</td>' +
-					'<td class="col-sender">' + escapeHtml(row.sender || '') + '</td>' +
-					'<td>' + escapeHtml(row.meldung || '') + '</td>';
+            // Um per Doppelklick IDs in den Filter zu nehmen
+            rows.forEach((row) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML =
+                    '<td class="col-zeit">' + escapeHtml(row.zeitstempel || '') + '</td>' +
+                    '<td class="col-objektid">' + escapeHtml(row.objektId || '') + '</td>' +
+                    '<td class="col-typ">' + escapeHtml(row.typ || '') + '</td>' +
+                    '<td class="col-sender">' + escapeHtml(row.sender || '') + '</td>' +
+                    '<td>' + escapeHtml(row.meldung || '') + '</td>';
 
-				const objektIdCell = tr.querySelector('.col-objektid');
-				if (objektIdCell) {
-					objektIdCell.style.cursor = 'pointer';
-					objektIdCell.title = 'Doppelklick übernimmt die ObjektID in den Filter';
+                const objektIdCell = tr.querySelector('.col-objektid');
+                if (objektIdCell) {
+                    objektIdCell.style.cursor = 'pointer';
+                    objektIdCell.title = 'Doppelklick übernimmt die ObjektID in den Filter';
 
-					objektIdCell.addEventListener('dblclick', () => {
-						uebernehmeObjektIdInFilter(row.objektId || '');
-					});
-				}
+                    objektIdCell.addEventListener('dblclick', () => {
+                        uebernehmeObjektIdInFilter(row.objektId || '');
+                    });
+                }
 
-				tbody.appendChild(tr);
-			});
+                tbody.appendChild(tr);
+            });
         }
 
         const aktuelleSeite = Number(status.seite || 0);
@@ -1013,129 +1222,137 @@
             document.getElementById('btnVor').disabled = !currentData.hatWeitere;
         }
 
-        triggerCountIfNeeded(currentData);
-        triggerFilterMetaIfNeeded(currentData);
+        if (!istInitialerAufbau) {
+            triggerCountIfNeeded(currentData);
+            triggerFilterMetaIfNeeded(currentData);
+        }
     }
-	
-	// Startet die Trefferzählung bei Bedarf
-	function triggerCountIfNeeded(data) {
-		const status = data?.status || {};
-		const signature = JSON.stringify({
-			filterTypen: Array.isArray(status.filterTypen) ? status.filterTypen : [],
-			objektIdFilter: status.objektIdFilter ?? '',
-			senderFilter: Array.isArray(status.senderFilter) ? status.senderFilter : [],
-			textFilter: status.textFilter ?? '',
-			logDatei: data?.logDatei ?? ''
-		});
 
-		const blockedByError = data?.ok === false;
+    // Startet die Trefferzählung bei Bedarf
+    function triggerCountIfNeeded(data) {
+        const status = data?.status || {};
+        const signature = JSON.stringify({
+            filterTypen: Array.isArray(status.filterTypen) ? status.filterTypen : [],
+            objektIdFilter: status.objektIdFilter ?? '',
+            senderFilter: Array.isArray(status.senderFilter) ? status.senderFilter : [],
+            textFilter: status.textFilter ?? '',
+            logDatei: data?.logDatei ?? ''
+        });
 
-		const needsCount =
-			!blockedByError &&
-			!data?.zaehlungLaeuft &&
-			(typeof data?.trefferGesamt !== 'number' || data.trefferGesamt < 0);
+        const blockedByError = data?.ok === false;
 
-		console.debug('[LogAnalyzer] triggerCountIfNeeded', {
-			logDatei: data?.logDatei ?? '',
-			blockedByError,
-			needsCount,
-			zaehlungLaeuft: !!data?.zaehlungLaeuft,
-			trefferGesamt: data?.trefferGesamt,
-			signature,
-			countRequestRunning,
-			lastCountSignature
-		});
+        const needsCount =
+            !blockedByError &&
+            !data?.zaehlungLaeuft &&
+            (typeof data?.trefferGesamt !== 'number' || data.trefferGesamt < 0);
 
-		if (!needsCount) {
-			lastCountSignature = signature;
-			countRequestRunning = false;
-			return;
-		}
+        console.debug('[LogAnalyzer] triggerCountIfNeeded', {
+            logDatei: data?.logDatei ?? '',
+            blockedByError,
+            needsCount,
+            zaehlungLaeuft: !!data?.zaehlungLaeuft,
+            trefferGesamt: data?.trefferGesamt,
+            signature,
+            countRequestRunning,
+            lastCountSignature
+        });
 
-		if (countRequestRunning && lastCountSignature === signature) {
-			console.debug('[LogAnalyzer] ZaehleTreffer wird nicht erneut gestartet (bereits laufend/signaturgleich)', {
-				signature
-			});
-			return;
-		}
+        if (!needsCount) {
+            lastCountSignature = signature;
+            countRequestRunning = false;
+            return;
+        }
 
-		countRequestRunning = true;
-		lastCountSignature = signature;
+        if (countRequestRunning && lastCountSignature === signature) {
+            console.debug('[LogAnalyzer] ZaehleTreffer wird nicht erneut gestartet (bereits laufend/signaturgleich)', {
+                signature
+            });
+            return;
+        }
 
-		console.debug('[LogAnalyzer] Starte ZaehleTreffer', {
-			signature
-		});
+        countRequestRunning = true;
+        lastCountSignature = signature;
 
-		window.setTimeout(() => {
-			try {
-				requestAction('ZaehleTreffer', '');
-			} catch (e) {
-				console.error('[LogAnalyzer] Fehler beim Starten der Trefferzählung', e);
-				countRequestRunning = false;
-			}
-		}, 0);
-	}
+        console.debug('[LogAnalyzer] Starte ZaehleTreffer', {
+            signature
+        });
 
-	// Startet das Laden der Filtermetadaten bei Bedarf
-	function triggerFilterMetaIfNeeded(data) {
-		const signature = JSON.stringify({
-			logDatei: data?.logDatei ?? '',
-			dateiGroesse: data?.dateiGroesse ?? ''
-		});
+        window.setTimeout(() => {
+            try {
+                requestAction('ZaehleTreffer', '');
+            } catch (e) {
+                console.error('[LogAnalyzer] Fehler beim Starten der Trefferzählung', e);
+                countRequestRunning = false;
+            }
+        }, 0);
+    }
 
-		const blockedByError = data?.ok === false;
-		const needsLoad = !blockedByError && !data?.filterMetadatenGeladen && !data?.filterMetadatenLaeuft;
+    // Startet das Laden der Filtermetadaten bei Bedarf
+    function triggerFilterMetaIfNeeded(data) {
+        const signature = JSON.stringify({
+            logDatei: data?.logDatei ?? '',
+            dateiGroesse: data?.dateiGroesse ?? ''
+        });
 
-		console.debug('[LogAnalyzer] triggerFilterMetaIfNeeded', {
-			logDatei: data?.logDatei ?? '',
-			blockedByError,
-			needsLoad,
-			filterMetadatenGeladen: !!data?.filterMetadatenGeladen,
-			filterMetadatenLaeuft: !!data?.filterMetadatenLaeuft,
-			signature,
-			filterMetaRequestRunning,
-			lastFilterMetaSignature
-		});
+        const blockedByError = data?.ok === false;
+        const needsLoad = !blockedByError && !data?.filterMetadatenGeladen && !data?.filterMetadatenLaeuft;
 
-		if (!needsLoad) {
-			lastFilterMetaSignature = signature;
-			filterMetaRequestRunning = false;
-			return;
-		}
+        console.debug('[LogAnalyzer] triggerFilterMetaIfNeeded', {
+            logDatei: data?.logDatei ?? '',
+            blockedByError,
+            needsLoad,
+            filterMetadatenGeladen: !!data?.filterMetadatenGeladen,
+            filterMetadatenLaeuft: !!data?.filterMetadatenLaeuft,
+            signature,
+            filterMetaRequestRunning,
+            lastFilterMetaSignature
+        });
 
-		if (filterMetaRequestRunning && lastFilterMetaSignature === signature) {
-			console.debug('[LogAnalyzer] LadeFilterOptionen wird nicht erneut gestartet (bereits laufend/signaturgleich)', {
-				signature
-			});
-			return;
-		}
+        if (!needsLoad) {
+            lastFilterMetaSignature = signature;
+            filterMetaRequestRunning = false;
+            return;
+        }
 
-		filterMetaRequestRunning = true;
-		lastFilterMetaSignature = signature;
+        if (filterMetaRequestRunning && lastFilterMetaSignature === signature) {
+            console.debug('[LogAnalyzer] LadeFilterOptionen wird nicht erneut gestartet (bereits laufend/signaturgleich)', {
+                signature
+            });
+            return;
+        }
 
-		console.debug('[LogAnalyzer] Starte LadeFilterOptionen', {
-			signature
-		});
+        filterMetaRequestRunning = true;
+        lastFilterMetaSignature = signature;
 
-		window.setTimeout(() => {
-			try {
-				requestAction('LadeFilterOptionen', '');
-			} catch (e) {
-				console.error('[LogAnalyzer] Fehler beim Laden der Filteroptionen', e);
-				filterMetaRequestRunning = false;
-			}
-		}, 0);
-	}
+        console.debug('[LogAnalyzer] Starte LadeFilterOptionen', {
+            signature
+        });
+
+        window.setTimeout(() => {
+            try {
+                requestAction('LadeFilterOptionen', '');
+            } catch (e) {
+                console.error('[LogAnalyzer] Fehler beim Laden der Filteroptionen', e);
+                filterMetaRequestRunning = false;
+            }
+        }, 0);
+    }
 
     // Öffnet oder schließt die Typ-Auswahl
     document.getElementById('filterTypButton').addEventListener('click', (event) => {
         event.stopPropagation();
+        document.querySelectorAll('.custom-select.open').forEach((element) => {
+            element.classList.remove('open');
+        });
         document.getElementById('filterTypContainer').classList.toggle('open');
     });
 
     // Öffnet oder schließt die Sender-Auswahl
     document.getElementById('senderButton').addEventListener('click', (event) => {
         event.stopPropagation();
+        document.querySelectorAll('.custom-select.open').forEach((element) => {
+            element.classList.remove('open');
+        });
         document.getElementById('senderContainer').classList.toggle('open');
     });
 
@@ -1151,6 +1368,12 @@
         if (!senderContainer.contains(event.target)) {
             senderContainer.classList.remove('open');
         }
+
+        document.querySelectorAll('.custom-select.open').forEach((element) => {
+            if (!element.contains(event.target)) {
+                element.classList.remove('open');
+            }
+        });
     });
 
     // Wendet die aktuellen Filter an
@@ -1193,10 +1416,15 @@
         requestAction('SetzeKompakt', event.target.value === '1');
     });
 
-	// Reagiert auf einen Wechsel des Betriebsmodus
-	document.getElementById('betriebsmodusSelect').addEventListener('change', (event) => {
-		requestAction('SetzeBetriebsmodus', event.target.value);
-	});
+    // Reagiert auf einen Wechsel des Betriebsmodus
+    document.getElementById('betriebsmodusSelect').addEventListener('change', (event) => {
+        requestAction('SetzeBetriebsmodus', event.target.value);
+    });
+
+    // Initialisierung der einfachen Custom-Selects
+    CUSTOM_SELECT_MAPPINGS.forEach(({ selectId, customId }) => {
+        initCustomSelect(selectId, customId);
+    });
 
     // Initiales Rendering beim Laden der Seite
     render(INITIAL_DATA);

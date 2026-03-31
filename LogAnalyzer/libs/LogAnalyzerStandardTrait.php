@@ -14,6 +14,7 @@ trait LogAnalyzerStandardTrait
      */
 	private function ladeLogZeilenStandard(array $status): array
 	{
+		$start = microtime(true);
 		$logDatei = $this->ReadPropertyString('LogDatei');
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$seite = max(0, (int) ($status['seite'] ?? 0));
@@ -72,13 +73,14 @@ trait LogAnalyzerStandardTrait
 
 		$this->SendDebug('ladeLogZeilen',
 			sprintf(
-				'plattform=php-standard datei=%s seite=%d maxZeilen=%d treffer=%d parsed=%d hatWeitere=%s',
+				'plattform=php-standard datei=%s seite=%d maxZeilen=%d treffer=%d parsed=%d hatWeitere=%s dauerMs=%d',
 				basename($logDatei),
 				$seite,
 				$maxZeilen,
 				$trefferGesamt,
 				count($sichtbareZeilen),
-				$hatWeitere ? 'true' : 'false'
+				$hatWeitere ? 'true' : 'false',
+				(int) round((microtime(true) - $start) * 1000)
 			),
 			0
 		);
