@@ -5,568 +5,10 @@
     <title>LogAnalyzer</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="/icons.js"></script>
-    <style>
-        /* Zentrale Designvariablen */
-        :root {
-            --accent: #D37800;
-            --accent-soft: rgba(77, 163, 255, 0.18);
-            --radius: 12px;
-            --radius-sm: 8px;
-        }
-
-        /* Erzwingt Dark-Theme für native Eingabeelemente */
-        html.theme-dark,
-        body.theme-dark,
-        body.theme-dark input {
-            color-scheme: dark;
-        }
-
-        /* Erzwingt Light-Theme für native Eingabeelemente */
-        html.theme-light,
-        body.theme-light,
-        body.theme-light input {
-            color-scheme: light;
-        }
-
-        /* Farbwerte für Dark-Theme */
-        body.theme-dark {
-            --bg: rgba(20, 20, 20, 0.35);
-            --bg-soft: rgba(255, 255, 255, 0.05);
-            --bg-input: rgba(0, 0, 0, 0.25);
-            --bg-dropdown: rgba(30, 30, 30, 0.96);
-            --border: rgba(255, 255, 255, 0.12);
-            --border-soft: rgba(255, 255, 255, 0.10);
-            --text: #f5f5f5;
-            --muted: #b8b8b8;
-            --row-even: rgba(255, 255, 255, 0.03);
-            --row-border: rgba(255, 255, 255, 0.08);
-            --table-line: rgba(255, 255, 255, 0.10);
-            --table-line-strong: rgba(255, 255, 255, 0.14);
-            --message-text: #ffd2d2;
-            --activity-track: rgba(255, 255, 255, 0.08);
-            --activity-bar: rgba(77, 163, 255, 0.85);
-        }
-
-        /* Farbwerte für Light-Theme */
-        body.theme-light {
-            --bg: rgba(255, 255, 255, 0.82);
-            --bg-soft: rgba(0, 0, 0, 0.03);
-            --bg-input: rgba(255, 255, 255, 0.92);
-            --bg-dropdown: rgba(255, 255, 255, 0.98);
-            --border: rgba(0, 0, 0, 0.12);
-            --border-soft: rgba(0, 0, 0, 0.10);
-            --text: #1f2937;
-            --muted: #6b7280;
-            --row-even: rgba(0, 0, 0, 0.025);
-            --row-border: rgba(0, 0, 0, 0.08);
-            --table-line: rgba(0, 0, 0, 0.10);
-            --table-line-strong: rgba(0, 0, 0, 0.14);
-            --message-text: #9f1239;
-            --activity-track: rgba(0, 0, 0, 0.08);
-            --activity-bar: rgba(37, 99, 235, 0.85);
-        }
-
-        /* Einheitliches Box-Modell */
-        * {
-            box-sizing: border-box;
-        }
-
-        /* Grundlayout der Seite */
-        body {
-            margin: 0;
-            font-family: Arial, Helvetica, sans-serif;
-            color: var(--text);
-            background: transparent;
-            transition: color 0.18s ease, background 0.18s ease;
-        }
-
-        /* Äußerer Inhaltsbereich */
-        .wrapper {
-            display: grid;
-            gap: 12px;
-            padding: 12px;
-        }
-
-        /* Kartencontainer für die Hauptansicht */
-        .card {
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            overflow: visible;
-            backdrop-filter: blur(8px);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
-        }
-
-        /* Kopfbereich mit Filtern und Aktionen */
-        .toolbar {
-            display: grid;
-            gap: 10px;
-            padding: 12px;
-            background: var(--bg-soft);
-            border-bottom: 1px solid var(--border);
-            overflow: visible;
-        }
-
-        /* Responsives Raster für Filterfelder */
-        .toolbar-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-            gap: 10px;
-            overflow: visible;
-        }
-
-        /* Beschriftungen für Eingabefelder */
-        label {
-            display: grid;
-            gap: 6px;
-            font-size: 12px;
-            color: var(--muted);
-        }
-
-        /* Einheitliche Darstellung für Eingabefelder */
-        input,
-        select {
-            width: 100%;
-            min-height: 34px;
-            border-radius: var(--radius-sm);
-            border: 1px solid var(--border);
-            background: var(--bg-input);
-            color: var(--text);
-            padding: 8px 10px;
-            transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
-        }
-
-        /* Darstellung nativer Auswahloptionen */
-        select,
-        option,
-        optgroup {
-            background: var(--bg-input);
-            color: var(--text);
-        }
-
-        /* Fokuszustand für Eingabeelemente */
-        input:focus,
-        select:focus,
-        button:focus {
-            outline: none;
-            border-color: rgba(77, 163, 255, 0.5);
-            box-shadow: 0 0 0 3px rgba(77, 163, 255, 0.15);
-        }
-
-        /* Versteckte native Selects als Datenspeicher für Custom-Selects */
-        .native-select-hidden {
-            display: none !important;
-        }
-
-        /* Zeile für Aktionsbuttons und Inline-Auswahlfelder */
-        .button-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            align-items: center;
-        }
-
-        /* Inline-Steuerelemente in der Button-Zeile */
-        .button-row .inline-control {
-            min-width: 130px;
-            max-width: 170px;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            white-space: nowrap;
-        }
-
-        /* Beschriftung vor Einstellungen */
-        .button-row .inline-control span {
-            display: inline-block;
-            color: var(--muted);
-            font-size: 12px;
-        }
-
-        /* Grundstil für Schaltflächen */
-        button {
-            width: auto;
-            min-width: 0;
-            min-height: 30px;
-            padding: 6px 10px;
-            border-radius: var(--radius-sm);
-            border: 1px solid var(--border);
-            background: var(--accent-soft);
-            color: var(--text);
-            cursor: pointer;
-            white-space: nowrap;
-            flex: 0 0 auto;
-            transition: transform 0.12s ease, opacity 0.12s ease, background 0.15s ease;
-        }
-
-        /* Hover-Effekt für Buttons */
-        button:hover {
-            transform: translateY(-1px);
-        }
-
-        /* Alternative Button-Darstellung */
-        button.secondary {
-            background: var(--bg-soft);
-        }
-
-        /* Deaktivierte Buttons */
-        button:disabled {
-            opacity: 0.45;
-            cursor: default;
-            transform: none;
-        }
-
-
-
-
-		.custom-select,
-		.custom-select-button {
-			min-width: 0;
-		}
-
-		.custom-select-button {
-			overflow: hidden;
-		}
-
-		.custom-select-button-text {
-			flex: 1 1 auto;
-			min-width: 0;
-			overflow: hidden;
-			text-overflow: ellipsis;
-			white-space: nowrap;
-		}
-
-		.toolbar-grid {
-			grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		}
-
-
-
-
-        /* Metadatenzeile unterhalb der Toolbar */
-        .meta {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
-            padding: 0 12px 12px;
-            margin-top: 6px;
-            font-size: 12px;
-            color: var(--muted);
-        }
-
-        /* Bereich für Ladeindikator */
-        .status-activity {
-            padding: 6px 12px 6px;
-            display: none;
-        }
-
-        /* Sichtbarer Ladeindikator */
-        .status-activity.active {
-            display: block;
-        }
-
-        /* Hintergrundspur des Ladebalkens */
-        .status-activity-track {
-            position: relative;
-            height: 6px;
-            border-radius: 999px;
-            overflow: hidden;
-            background: var(--activity-track);
-            border: 1px solid var(--border-soft);
-        }
-
-        /* Bewegter Balken für laufende Aktionen */
-        .status-activity-bar {
-            position: absolute;
-            top: 0;
-            left: -30%;
-            width: 30%;
-            height: 100%;
-            border-radius: 999px;
-            background: var(--activity-bar);
-            animation: status-running 1.4s ease-in-out infinite alternate;
-        }
-
-        /* Text unterhalb des Ladebalkens */
-        .status-activity-text {
-            margin-top: 8px;
-            margin-bottom: 8px;
-            font-size: 11px;
-            color: var(--muted);
-            text-align: center;
-        }
-
-        /* Animation für den Ladebalken */
-        @keyframes status-running {
-            from {
-                left: -30%;
-            }
-            to {
-                left: 100%;
-            }
-        }
-
-        /* Bereich für Fehlermeldungen und Hinweise */
-        .message {
-            padding: 12px;
-            color: var(--message-text);
-            border-top: 1px solid var(--border);
-            display: none;
-        }
-
-        /* Scrollbarer Tabellenbereich */
-        .table-wrap {
-            overflow: auto;
-            max-height: 65vh;
-        }
-
-        /* Grundlayout der Tabelle */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 13px;
-        }
-
-        /* Tabellenkopf mit Sticky-Verhalten */
-        thead th {
-            position: sticky;
-            top: 0;
-            z-index: 2;
-            text-align: left;
-            background: var(--accent);
-            color: #fff;
-            border-bottom: 1px solid var(--table-line-strong);
-            border-right: 1px solid var(--table-line);
-            padding: 6px 8px;
-        }
-
-        /* Letzte Tabellenkopfzelle ohne rechte Linie */
-        thead th:last-child {
-            border-right: none;
-        }
-
-        /* Tabellenzellen im Datenbereich */
-        tbody td {
-            padding: 9px 10px;
-            border-bottom: 1px solid var(--table-line);
-            border-right: 1px solid var(--table-line);
-            vertical-align: top;
-        }
-
-        /* Letzte Spalte ohne rechte Linie */
-        tbody td:last-child {
-            border-right: none;
-        }
-
-        /* Wechselnde Zeilenhintergründe */
-        tbody tr:nth-child(even) {
-            background: var(--row-even);
-        }
-
-        /* Feste Breite für Zeitspalte */
-        .col-zeit {
-            width: 170px;
-            white-space: nowrap;
-        }
-
-        /* Feste Breite für Objekt-ID-Spalte */
-        .col-objektid {
-            width: 90px;
-            white-space: nowrap;
-        }
-
-        /* Feste Breite für Typ-Spalte */
-        .col-typ {
-            width: 110px;
-            white-space: nowrap;
-        }
-
-        /* Feste Breite für Sender-Spalte */
-        .col-sender {
-            width: 220px;
-        }
-
-        /* Anzeige für leere Zustände */
-        .empty {
-            padding: 16px;
-            color: var(--muted);
-        }
-
-        /* Wrapper für Mehrfachauswahl und einfache Custom-Selects */
-        .multi-select,
-        .custom-select {
-            position: relative;
-        }
-
-        /* Button für Mehrfachauswahl und einfache Custom-Selects */
-        .multi-select-button,
-        .custom-select-button {
-            width: 100%;
-            min-height: 34px;
-            border-radius: var(--radius-sm);
-            border: 1px solid var(--border);
-            background: var(--bg-input);
-            color: var(--text);
-            padding: 8px 10px;
-            text-align: left;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            box-shadow: none;
-        }
-
-        /* Pfeilsymbol am Auswahl-Button */
-        .multi-select-button::after,
-        .custom-select-button::after {
-            content: "▾";
-            opacity: 0.8;
-            margin-left: 10px;
-            flex: 0 0 auto;
-        }
-
-        /* Dropdown für Mehrfachauswahl und einfache Custom-Selects */
-        .multi-select-dropdown,
-        .custom-select-dropdown {
-            position: absolute;
-            top: calc(100% + 4px);
-            left: 0;
-            right: 0;
-            z-index: 50;
-            display: none;
-            background: var(--bg-dropdown);
-            border: 1px solid var(--border);
-            border-radius: var(--radius-sm);
-            padding: 8px;
-            box-shadow: 0 8px 18px rgba(0, 0, 0, 0.18);
-        }
-
-        /* Sichtbarer Zustand des Dropdowns */
-        .multi-select.open .multi-select-dropdown,
-        .custom-select.open .custom-select-dropdown {
-            display: block;
-        }
-
-        /* Optionsliste im Dropdown */
-        .multi-select-options,
-        .custom-select-options {
-            display: grid;
-            gap: 6px;
-            max-height: 220px;
-            overflow-y: auto;
-        }
-
-        /* Einzelne Option im Dropdown */
-        .multi-select-option,
-        .custom-select-option {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            color: var(--text);
-            font-size: 13px;
-        }
-
-        /* Klickbare Option für einfache Custom-Selects */
-        .custom-select-option {
-            width: 100%;
-            border: 0;
-            background: transparent;
-            padding: 6px 8px;
-            border-radius: 6px;
-            text-align: left;
-            min-height: 0;
-        }
-
-        .custom-select-option:hover,
-        .custom-select-option.is-selected {
-            background: var(--bg-soft);
-        }
-
-        /* Checkbox-Stil im Mehrfachauswahlfeld */
-        .multi-select-option input[type="checkbox"] {
-            width: auto;
-            min-height: 0;
-            margin: 0;
-            padding: 0;
-        }
-
-        /* Kompaktere Selects in der Button-Zeile */
-        .button-row .inline-control .custom-select {
-            width: auto;
-            flex: 1 1 auto;
-            min-width: 0;
-        }
-
-        .button-row .inline-control .custom-select-button {
-            min-height: 30px;
-            padding: 5px 8px;
-            font-size: 12px;
-        }
-
-        /* Kompakter Modus für Toolbar */
-        body.compact .toolbar {
-            padding: 9px;
-            gap: 8px;
-        }
-
-        /* Kompakter Modus für Toolbar-Raster */
-        body.compact .toolbar-grid {
-            gap: 8px;
-        }
-
-        /* Kompakter Modus für Labels */
-        body.compact label {
-            gap: 4px;
-            font-size: 11px;
-        }
-
-        /* Kompakter Modus für Eingabefelder */
-        body.compact input,
-        body.compact select,
-        body.compact .multi-select-button,
-        body.compact .custom-select-button {
-            min-height: 30px;
-            padding: 6px 8px;
-            font-size: 12px;
-        }
-
-        /* Kompakter Modus für Buttons */
-        body.compact button {
-            min-height: 28px;
-            padding: 4px 8px;
-            font-size: 12px;
-        }
-
-        /* Kompakter Modus für Metadaten */
-        body.compact .meta {
-            font-size: 11px;
-            gap: 10px;
-            padding: 0 10px 10px;
-        }
-
-        /* Kompakter Modus für Tabellen */
-        body.compact table {
-            font-size: 12px;
-        }
-
-        /* Kompakter Modus für Tabellenkopf */
-        body.compact thead th {
-            padding: 8px;
-        }
-
-        /* Kompakter Modus für Tabellenzellen */
-        body.compact tbody td {
-            padding: 6px 8px;
-        }
-
-        /* Kompakter Modus für Auswahloptionen */
-        body.compact .multi-select-option,
-        body.compact .custom-select-option {
-            font-size: 12px;
-        }
-    </style>
+    %%MODULE_CSS%%
 </head>
 <body class="theme-dark">
-<br><br><br>
+<br><br>
 
 <!-- Gesamter sichtbarer Inhaltsbereich -->
 <div class="wrapper">
@@ -575,73 +17,66 @@
         <!-- Filter- und Steuerbereich -->
         <div class="toolbar">
             <div class="toolbar-grid">
+				<label class="toolbar-field toolbar-field-logdatei">
+					<span class="field-label-text">Logdatei</span>
+					<select id="logDateiSelect" class="native-select-hidden"></select>
+					<div class="custom-select" id="logDateiCustom">
+						<button type="button" class="custom-select-button" id="logDateiCustomButton">-</button>
+						<div class="custom-select-dropdown" id="logDateiCustomDropdown">
+							<div class="custom-select-options" id="logDateiCustomOptions"></div>
+						</div>
+					</div>
+				</label>
 
-                <!-- Auswahl der Logdatei -->
-                <label>
-                    Logdatei
-                    <select id="logDateiSelect" class="native-select-hidden"></select>
-                    <div class="custom-select" id="logDateiCustom">
-                        <button type="button" class="custom-select-button" id="logDateiCustomButton">-</button>
-                        <div class="custom-select-dropdown" id="logDateiCustomDropdown">
-                            <div class="custom-select-options" id="logDateiCustomOptions"></div>
-                        </div>
-                    </div>
-                </label>
+				<label class="toolbar-field toolbar-field-zeilen">
+					<span class="field-label-text">Zeilen pro Seite</span>
+					<select id="maxZeilenSelect" class="native-select-hidden">
+						<option value="20">20</option>
+						<option value="50">50</option>
+						<option value="100">100</option>
+						<option value="200">200</option>
+						<option value="500">500</option>
+						<option value="1000">1000</option>
+						<option value="2000">2000</option>
+						<option value="3000">3000</option>
+					</select>
+					<div class="custom-select" id="maxZeilenCustom">
+						<button type="button" class="custom-select-button" id="maxZeilenCustomButton">50</button>
+						<div class="custom-select-dropdown" id="maxZeilenCustomDropdown">
+							<div class="custom-select-options" id="maxZeilenCustomOptions"></div>
+						</div>
+					</div>
+				</label>
 
-                <!-- Auswahl der Seitengröße -->
-                <label>
-                    Zeilen pro Seite
-                    <select id="maxZeilenSelect" class="native-select-hidden">
-                        <option value="20">20</option>
-                        <option value="50">50</option>
-                        <option value="100">100</option>
-                        <option value="200">200</option>
-                        <option value="500">500</option>
-                        <option value="1000">1000</option>
-                        <option value="2000">2000</option>
-                        <option value="3000">3000</option>
-                    </select>
-                    <div class="custom-select" id="maxZeilenCustom">
-                        <button type="button" class="custom-select-button" id="maxZeilenCustomButton">50</button>
-                        <div class="custom-select-dropdown" id="maxZeilenCustomDropdown">
-                            <div class="custom-select-options" id="maxZeilenCustomOptions"></div>
-                        </div>
-                    </div>
-                </label>
+				<label class="toolbar-field toolbar-field-objektid">
+					<span class="field-label-text">ObjektID</span>
+					<input id="objektIdFilter" type="text" placeholder="z. B. 12345, 67890">
+				</label>
 
-                <!-- Filter nach Objekt-ID -->
-                <label>
-                    ObjektID
-                    <input id="objektIdFilter" type="text" placeholder="z. B. 12345, 67890">
-                </label>
+				<label class="toolbar-field toolbar-field-meldungstyp">
+					<span class="field-label-text">Meldungstyp</span>
+					<div class="multi-select" id="filterTypContainer">
+						<button type="button" id="filterTypButton" class="multi-select-button">Alle</button>
+						<div class="multi-select-dropdown" id="filterTypDropdown">
+							<div class="multi-select-options" id="filterTypOptions"></div>
+						</div>
+					</div>
+				</label>
 
-                <!-- Mehrfachauswahl für Meldungstypen -->
-                <label>
-                    Meldungstyp
-                    <div class="multi-select" id="filterTypContainer">
-                        <button type="button" id="filterTypButton" class="multi-select-button">Alle</button>
-                        <div class="multi-select-dropdown" id="filterTypDropdown">
-                            <div class="multi-select-options" id="filterTypOptions"></div>
-                        </div>
-                    </div>
-                </label>
+				<label class="toolbar-field toolbar-field-sender">
+					<span class="field-label-text">Sender</span>
+					<div class="multi-select" id="senderContainer">
+						<button type="button" id="senderButton" class="multi-select-button">Alle</button>
+						<div class="multi-select-dropdown" id="senderDropdown">
+							<div class="multi-select-options" id="senderOptions"></div>
+						</div>
+					</div>
+				</label>
 
-                <!-- Mehrfachauswahl für Sender -->
-                <label>
-                    Sender
-                    <div class="multi-select" id="senderContainer">
-                        <button type="button" id="senderButton" class="multi-select-button">Alle</button>
-                        <div class="multi-select-dropdown" id="senderDropdown">
-                            <div class="multi-select-options" id="senderOptions"></div>
-                        </div>
-                    </div>
-                </label>
-
-                <!-- Freitextfilter für Meldungsinhalt -->
-                <label>
-                    Meldung enthält
-                    <input id="textFilter" type="text" placeholder="Freitext">
-                </label>
+				<label class="toolbar-field toolbar-field-text">
+					<span class="field-label-text">Meldung enthält</span>
+					<input id="textFilter" type="text" placeholder="Freitext">
+				</label>
             </div>
 
             <!-- Aktions- und Darstellungssteuerung -->
@@ -753,6 +188,19 @@
     let filterMetaRequestRunning = false;
     let lastFilterMetaSignature = '';
 
+    const asyncTriggerState = {
+        count: {
+            inFlight: false,
+            lastSignature: '',
+            lastStartedAt: 0
+        },
+        filter: {
+            inFlight: false,
+            lastSignature: '',
+            lastStartedAt: 0
+        }
+    };
+	
     // Zuordnung zwischen versteckten nativen Selects und sichtbaren Custom-Selects
     const CUSTOM_SELECT_MAPPINGS = [
         { selectId: 'logDateiSelect', customId: 'logDateiCustom' },
@@ -974,22 +422,36 @@
     }
 
     // Nimmt neue Daten entgegen und startet das Rendering
-    function handleMessage(data) {
-        try {
-            let parsed = data;
-            if (typeof data === 'string') {
-                parsed = JSON.parse(data);
-            }
-            render(parsed);
-        } catch (e) {
-            console.error('Fehler in handleMessage', e, data);
-            const msg = document.getElementById('message');
-            if (msg) {
-                msg.style.display = 'block';
-                msg.textContent = 'Fehler in handleMessage: ' + e.message;
-            }
-        }
-    }
+	function handleMessage(data) {
+		try {
+			let parsed = data;
+			if (typeof data === 'string') {
+				parsed = JSON.parse(data);
+			}
+
+			console.debug('[LogAnalyzer] handleMessage', {
+				rawType: typeof data,
+				parsedOk: !!parsed,
+				mode: parsed?.betriebsmodus || '',
+				logDatei: parsed?.logDatei || '',
+				hits: parsed?.trefferGesamt,
+				tableLoading: !!parsed?.tabellenLadungLaeuft,
+				countLoading: !!parsed?.zaehlungLaeuft,
+				filterLoading: !!parsed?.filterMetadatenLaeuft,
+				rows: Array.isArray(parsed?.zeilen) ? parsed.zeilen.length : 0
+			});
+
+			debugActivityState(parsed, 'handleMessage-before-render');
+			render(parsed);
+		} catch (e) {
+			console.error('Fehler in handleMessage', e, data);
+			const msg = document.getElementById('message');
+			if (msg) {
+				msg.style.display = 'block';
+				msg.textContent = 'Fehler in handleMessage: ' + e.message;
+			}
+		}
+	}
 
     // Um per Doppelklick IDs in den Filter zu nehmen
     function uebernehmeObjektIdInFilter(objektId) {
@@ -1015,6 +477,7 @@
         input.value = vorhandene.join(', ');
     }
 
+    // Rendert die vollständige Oberfläche neu
     // Rendert die vollständige Oberfläche neu
     function render(data) {
         currentData = data || {};
@@ -1086,34 +549,58 @@
         }
 
         const statusActivity = document.getElementById('statusActivity');
+        const statusActivityTrack = statusActivity.querySelector('.status-activity-track');
         const statusActivityText = document.getElementById('statusActivityText');
 
-        const laedtTabelle = Boolean(currentData.tabellenLadungLaeuft || status.tabellenLadungLaeuft);
-        const tabellenText = String(currentData.tabellenLadungText || status.tabellenLadungText || '').trim();
-        const laedtTreffer = Boolean(currentData.zaehlungLaeuft);
-        const laedtFilter = Boolean(currentData.filterMetadatenLaeuft);
+        const fallbackLaedtTabelle = Boolean(currentData.tabellenLadungLaeuft || status.tabellenLadungLaeuft);
+        const fallbackTabellenText = String(currentData.tabellenLadungText || status.tabellenLadungText || '').trim();
+        const fallbackLaedtTreffer = Boolean(currentData.zaehlungLaeuft);
+        const fallbackLaedtFilter = Boolean(currentData.filterMetadatenLaeuft);
 
-        if (laedtTabelle || laedtTreffer || laedtFilter) {
+        const ladebalkenAktiv =
+            typeof currentData.anzeigeLadebalken === 'boolean'
+                ? currentData.anzeigeLadebalken
+                : fallbackLaedtTabelle;
+
+        const ladebalkenText =
+            typeof currentData.anzeigeLadebalkenText === 'string' && currentData.anzeigeLadebalkenText.trim() !== ''
+                ? currentData.anzeigeLadebalkenText.trim()
+                : (fallbackTabellenText || 'Tabelle wird geladen …');
+
+        const hintergrundAktiv =
+            typeof currentData.anzeigeHintergrundlaufend === 'boolean'
+                ? currentData.anzeigeHintergrundlaufend
+                : (!fallbackLaedtTabelle && (fallbackLaedtTreffer || fallbackLaedtFilter));
+
+        let hintergrundText =
+            typeof currentData.anzeigeHintergrundText === 'string'
+                ? currentData.anzeigeHintergrundText.trim()
+                : '';
+
+        if (!hintergrundText) {
+            if (fallbackLaedtTreffer && fallbackLaedtFilter) {
+                hintergrundText = 'Treffer und Filteroptionen werden ermittelt …';
+            } else if (fallbackLaedtTreffer) {
+                hintergrundText = 'Treffer werden ermittelt …';
+            } else if (fallbackLaedtFilter) {
+                hintergrundText = 'Filteroptionen werden geladen …';
+            }
+        }
+
+        if (ladebalkenAktiv || hintergrundAktiv) {
             statusActivity.classList.add('active');
+            statusActivityText.textContent = ladebalkenAktiv ? ladebalkenText : hintergrundText;
 
-            if (laedtTabelle && laedtTreffer && laedtFilter) {
-                statusActivityText.textContent = tabellenText || 'Tabelle, Treffer und Filteroptionen werden geladen …';
-            } else if (laedtTabelle && laedtTreffer) {
-                statusActivityText.textContent = tabellenText || 'Tabelle und Treffer werden geladen …';
-            } else if (laedtTabelle && laedtFilter) {
-                statusActivityText.textContent = tabellenText || 'Tabelle und Filteroptionen werden geladen …';
-            } else if (laedtTabelle) {
-                statusActivityText.textContent = tabellenText || 'Tabelle wird geladen …';
-            } else if (laedtTreffer && laedtFilter) {
-                statusActivityText.textContent = 'Treffer und Filteroptionen werden ermittelt …';
-            } else if (laedtTreffer) {
-                statusActivityText.textContent = 'Treffer werden ermittelt …';
-            } else {
-                statusActivityText.textContent = 'Filteroptionen werden geladen …';
+            if (statusActivityTrack) {
+                statusActivityTrack.style.display = ladebalkenAktiv ? '' : 'none';
             }
         } else {
             statusActivity.classList.remove('active');
             statusActivityText.textContent = '';
+
+            if (statusActivityTrack) {
+                statusActivityTrack.style.display = '';
+            }
         }
 
         const msg = document.getElementById('message');
@@ -1129,24 +616,22 @@
         const rows = Array.isArray(currentData.zeilen) ? currentData.zeilen : [];
 
         console.debug('[LogAnalyzer] render-table-state', {
-            laedtTabelle,
-            laedtTreffer,
-            laedtFilter,
+            ladebalkenAktiv,
+            ladebalkenText,
+            hintergrundAktiv,
+            hintergrundText,
             rowsLength: rows.length,
-            tabellenText,
             trefferGesamt: currentData.trefferGesamt
         });
 
-        // Tabellen-Ladezustand hat Vorrang vor Status- und Leerdarstellung
-        if (laedtTabelle && rows.length === 0) {
+        if (ladebalkenAktiv && rows.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="empty">Lade Daten …</td></tr>';
             triggerCountIfNeeded(currentData);
             triggerFilterMetaIfNeeded(currentData);
             return;
         }
 
-        // Reiner Statuslauf ohne Tabelleninhalt
-        if (!laedtTabelle && rows.length === 0 && (laedtTreffer || laedtFilter)) {
+        if (!ladebalkenAktiv && rows.length === 0 && hintergrundAktiv) {
             tbody.innerHTML = '<tr><td colspan="5" class="empty">Status wird aktualisiert …</td></tr>';
             triggerCountIfNeeded(currentData);
             triggerFilterMetaIfNeeded(currentData);
@@ -1158,7 +643,6 @@
         if (rows.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="empty">Keine passenden Logzeilen gefunden.</td></tr>';
         } else {
-            // Um per Doppelklick IDs in den Filter zu nehmen
             rows.forEach((row) => {
                 const tr = document.createElement('tr');
                 tr.innerHTML =
@@ -1195,119 +679,196 @@
             document.getElementById('btnVor').disabled = !currentData.hatWeitere;
         }
 
+        // Trigger nur noch mit harter Schutzlogik
         triggerCountIfNeeded(currentData);
         triggerFilterMetaIfNeeded(currentData);
     }
 
+    function buildAsyncSignature(data, kind) {
+        const status = data && data.status ? data.status : {};
+
+        const logDatei = String(data?.logDatei || data?.aktuelleLogDatei || '');
+        const modus = String(data?.betriebsmodus || '');
+        const seite = Number(status?.seite || 0);
+        const maxZeilen = Number(data?.maxZeilen || status?.maxZeilen || 0);
+
+        const filterTypen = Array.isArray(status?.filterTypen) ? [...status.filterTypen].sort().join('|') : '';
+        const senderFilter = Array.isArray(status?.senderFilter) ? [...status.senderFilter].sort().join('|') : '';
+        const objektIdFilter = String(status?.objektIdFilter || '');
+        const textFilter = String(status?.textFilter || '');
+
+        const basis =
+            [
+                kind,
+                logDatei,
+                modus,
+                seite,
+                maxZeilen,
+                filterTypen,
+                senderFilter,
+                objektIdFilter,
+                textFilter
+            ].join('||');
+
+        return basis;
+    }
+	
     // Startet die Trefferzählung bei Bedarf
     function triggerCountIfNeeded(data) {
-        const status = data?.status || {};
-        const signature = JSON.stringify({
-            filterTypen: Array.isArray(status.filterTypen) ? status.filterTypen : [],
-            objektIdFilter: status.objektIdFilter ?? '',
-            senderFilter: Array.isArray(status.senderFilter) ? status.senderFilter : [],
-            textFilter: status.textFilter ?? '',
-            logDatei: data?.logDatei ?? ''
-        });
+        const current = data || currentData || {};
+        const status = current.status || {};
 
-        const blockedByError = data?.ok === false;
+        const ladebalkenAktiv =
+            typeof current.anzeigeLadebalken === 'boolean'
+                ? current.anzeigeLadebalken
+                : Boolean(current.tabellenLadungLaeuft || status.tabellenLadungLaeuft);
 
-        const needsCount =
-            !blockedByError &&
-            !data?.zaehlungLaeuft &&
-            (typeof data?.trefferGesamt !== 'number' || data.trefferGesamt < 0);
+        const zaehlungLaeuft = Boolean(current.zaehlungLaeuft);
+        const trefferGesamt = Number(current.trefferGesamt ?? -1);
+        const fehlermeldung = String(current.fehlermeldung || '').trim();
+
+        const signature = buildAsyncSignature(current, 'count');
+        const now = Date.now();
+        const cooldownMs = 1200;
+
+        if (fehlermeldung !== '') {
+            return;
+        }
+
+        // Während echte Tabellenladung läuft, nichts zusätzlich lostreten
+        if (ladebalkenAktiv) {
+            return;
+        }
+
+        // Backend meldet bereits laufende Zählung
+        if (zaehlungLaeuft) {
+            asyncTriggerState.count.inFlight = true;
+            asyncTriggerState.count.lastSignature = signature;
+            return;
+        }
+
+        // Treffer sind bereits bekannt -> kein weiterer Trigger
+        if (Number.isFinite(trefferGesamt) && trefferGesamt >= 0) {
+            asyncTriggerState.count.inFlight = false;
+            asyncTriggerState.count.lastSignature = signature;
+            return;
+        }
+
+        // Gleiche Anfrage wurde gerade eben bereits ausgelöst
+        if (
+            asyncTriggerState.count.lastSignature === signature &&
+            (asyncTriggerState.count.inFlight || (now - asyncTriggerState.count.lastStartedAt) < cooldownMs)
+        ) {
+            return;
+        }
+
+        asyncTriggerState.count.inFlight = true;
+        asyncTriggerState.count.lastSignature = signature;
+        asyncTriggerState.count.lastStartedAt = now;
 
         console.debug('[LogAnalyzer] triggerCountIfNeeded', {
-            logDatei: data?.logDatei ?? '',
-            blockedByError,
-            needsCount,
-            zaehlungLaeuft: !!data?.zaehlungLaeuft,
-            trefferGesamt: data?.trefferGesamt,
             signature,
-            countRequestRunning,
-            lastCountSignature
+            trefferGesamt,
+            zaehlungLaeuft,
+            ladebalkenAktiv
         });
 
-        if (!needsCount) {
-            lastCountSignature = signature;
-            countRequestRunning = false;
-            return;
-        }
-
-        if (countRequestRunning && lastCountSignature === signature) {
-            console.debug('[LogAnalyzer] ZaehleTreffer wird nicht erneut gestartet (bereits laufend/signaturgleich)', {
-                signature
-            });
-            return;
-        }
-
-        countRequestRunning = true;
-        lastCountSignature = signature;
-
-        console.debug('[LogAnalyzer] Starte ZaehleTreffer', {
-            signature
-        });
-
-        window.setTimeout(() => {
-            try {
-                requestAction('ZaehleTreffer', '');
-            } catch (e) {
-                console.error('[LogAnalyzer] Fehler beim Starten der Trefferzählung', e);
-                countRequestRunning = false;
-            }
-        }, 0);
+        requestAction('ZaehleTreffer', '');
     }
 
     // Startet das Laden der Filtermetadaten bei Bedarf
     function triggerFilterMetaIfNeeded(data) {
-        const signature = JSON.stringify({
-            logDatei: data?.logDatei ?? '',
-            dateiGroesse: data?.dateiGroesse ?? ''
-        });
+        const current = data || currentData || {};
+        const status = current.status || {};
 
-        const blockedByError = data?.ok === false;
-        const needsLoad = !blockedByError && !data?.filterMetadatenGeladen && !data?.filterMetadatenLaeuft;
+        const ladebalkenAktiv =
+            typeof current.anzeigeLadebalken === 'boolean'
+                ? current.anzeigeLadebalken
+                : Boolean(current.tabellenLadungLaeuft || status.tabellenLadungLaeuft);
+
+        const filterLaeuft = Boolean(current.filterMetadatenLaeuft);
+        const filterGeladen = Boolean(current.filterMetadatenGeladen);
+        const fehlermeldung = String(current.fehlermeldung || '').trim();
+
+        const signature = buildAsyncSignature(current, 'filter');
+        const now = Date.now();
+        const cooldownMs = 1200;
+
+        if (fehlermeldung !== '') {
+            return;
+        }
+
+        // Während Tabellenladung keine zusätzliche Filter-Meta-Nachladung
+        if (ladebalkenAktiv) {
+            return;
+        }
+
+        // Backend meldet bereits laufende Filterladung
+        if (filterLaeuft) {
+            asyncTriggerState.filter.inFlight = true;
+            asyncTriggerState.filter.lastSignature = signature;
+            return;
+        }
+
+        // Filter sind bereits geladen -> nichts tun
+        if (filterGeladen) {
+            asyncTriggerState.filter.inFlight = false;
+            asyncTriggerState.filter.lastSignature = signature;
+            return;
+        }
+
+        // Gleiche Anfrage wurde gerade eben bereits ausgelöst
+        if (
+            asyncTriggerState.filter.lastSignature === signature &&
+            (asyncTriggerState.filter.inFlight || (now - asyncTriggerState.filter.lastStartedAt) < cooldownMs)
+        ) {
+            return;
+        }
+
+        asyncTriggerState.filter.inFlight = true;
+        asyncTriggerState.filter.lastSignature = signature;
+        asyncTriggerState.filter.lastStartedAt = now;
 
         console.debug('[LogAnalyzer] triggerFilterMetaIfNeeded', {
-            logDatei: data?.logDatei ?? '',
-            blockedByError,
-            needsLoad,
-            filterMetadatenGeladen: !!data?.filterMetadatenGeladen,
-            filterMetadatenLaeuft: !!data?.filterMetadatenLaeuft,
             signature,
-            filterMetaRequestRunning,
-            lastFilterMetaSignature
+            filterGeladen,
+            filterLaeuft,
+            ladebalkenAktiv
         });
 
-        if (!needsLoad) {
-            lastFilterMetaSignature = signature;
-            filterMetaRequestRunning = false;
-            return;
-        }
-
-        if (filterMetaRequestRunning && lastFilterMetaSignature === signature) {
-            console.debug('[LogAnalyzer] LadeFilterOptionen wird nicht erneut gestartet (bereits laufend/signaturgleich)', {
-                signature
-            });
-            return;
-        }
-
-        filterMetaRequestRunning = true;
-        lastFilterMetaSignature = signature;
-
-        console.debug('[LogAnalyzer] Starte LadeFilterOptionen', {
-            signature
-        });
-
-        window.setTimeout(() => {
-            try {
-                requestAction('LadeFilterOptionen', '');
-            } catch (e) {
-                console.error('[LogAnalyzer] Fehler beim Laden der Filteroptionen', e);
-                filterMetaRequestRunning = false;
-            }
-        }, 0);
+        requestAction('LadeFilterOptionen', '');
     }
+
+	function debugActivityState(data, source) {
+		const status = data?.status || {};
+		const isUltra = (data?.betriebsmodus || '') === 'ultra';
+
+		const tableLoading = !!data?.tabellenLadungLaeuft;
+		const countLoading = !!data?.zaehlungLaeuft;
+		const filterLoading = !!data?.filterMetadatenLaeuft;
+		const anyLoading = tableLoading || countLoading || filterLoading;
+
+		console.debug('[LogAnalyzer] activity-state', {
+			source: source || '-',
+			mode: data?.betriebsmodus || '',
+			isUltra,
+			logDatei: data?.logDatei || '',
+			tableLoading,
+			countLoading,
+			filterLoading,
+			anyLoading,
+			tableText: data?.tabellenLadungText || '',
+			hits: data?.trefferGesamt,
+			rows: Array.isArray(data?.zeilen) ? data.zeilen.length : 0,
+			hasMore: !!data?.hatWeitere,
+			filterLoaded: !!data?.filterMetadatenGeladen,
+			filterLoadTime: data?.filterLadezeitMs,
+			tableLoadTime: data?.ladezeitMs,
+			ultraBuildLaeuft: !!status?.ultraBuildLaeuft,
+			ultraIndexBereit: !!status?.ultraIndexBereit,
+			ultraBuildDatei: status?.ultraBuildDatei || ''
+		});
+	}
 
     // Öffnet oder schließt die Typ-Auswahl
     document.getElementById('filterTypButton').addEventListener('click', (event) => {
