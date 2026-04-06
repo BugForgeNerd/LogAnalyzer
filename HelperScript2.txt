@@ -1,0 +1,204 @@
+Dieses Script kann in Symcon genutzt werden um CLI Starttests auf WINDOWS zu machen auf welcher Basis die CLI am schnellsten startet.
+Mit Vorsicht behandeln!
+
+
+
+<?php
+
+$exe = 'C:\\ProgramData\\Symcon\\loganalyzer_ultra_amd64-windows.exe';
+$args = '--help'; // hier ggf. status oder page testen
+
+$tests = [
+    'proc_open direkt' => function() use ($exe, $args) {
+        $cmd = [$exe, $args];
+        $desc = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w']
+        ];
+
+        $start = microtime(true);
+        $p = proc_open($cmd, $desc, $pipes, null, null, ['bypass_shell' => true]);
+
+        if (is_resource($p)) {
+            stream_get_contents($pipes[1]);
+            stream_get_contents($pipes[2]);
+            foreach ($pipes as $pipe) fclose($pipe);
+            proc_close($p);
+        }
+
+        return microtime(true) - $start;
+    },
+
+    'exec direkt' => function() use ($exe, $args) {
+        $start = microtime(true);
+        exec("\"$exe\" $args");
+        return microtime(true) - $start;
+    },
+
+    'cmd /c' => function() use ($exe, $args) {
+        $start = microtime(true);
+        exec("cmd /c \"\"$exe\" $args\"");
+        return microtime(true) - $start;
+    },
+
+    'powershell' => function() use ($exe, $args) {
+        $start = microtime(true);
+        exec("powershell -NoProfile -Command \"& '$exe' $args\"");
+        return microtime(true) - $start;
+    },
+];
+
+echo "Benchmark startet...\n\n";
+
+foreach ($tests as $name => $fn) {
+    $zeiten = [];
+
+    for ($i = 0; $i < 5; $i++) {
+        $zeiten[] = $fn();
+    }
+
+    $avg = array_sum($zeiten) / count($zeiten);
+
+    printf(
+        "%-20s : %.3f s (%.3f / %.3f / %.3f / %.3f / %.3f)\n",
+        $name,
+        $avg,
+        $zeiten[0],
+        $zeiten[1],
+        $zeiten[2],
+        $zeiten[3],
+        $zeiten[4]
+    );
+}
+
+
+
+
+
+
+
+
+oder erweiterter Test:
+
+<?php
+
+$exe = 'C:\\ProgramData\\Symcon\\loganalyzer_ultra_amd64-windows.exe';
+$log = 'C:\\ProgramData\\Symcon\\logs\\logfile1774978894.log';
+
+// Hier die echten Ultra-Kommandos testen
+$commands = [
+    'status' => ['status', '--file', $log, '--multiline-mode', 'on'],
+    'page'   => ['page', '--file', $log, '--multiline-mode', 'on', '--offset', '0', '--limit', '50', '--include-total'],
+    'count'  => ['count', '--file', $log, '--multiline-mode', 'on'],
+
+    // Nur bewusst aktivieren, wenn du den Index wirklich löschen willst:
+    // 'clear-all' => ['clear-all', '--file', $log, '--multiline-mode', 'on'],
+
+    // Nur bewusst aktivieren, wenn du einen Build starten willst:
+    // 'build-index' => ['build-index', '--file', $log, '--multiline-mode', 'on'],
+];
+
+$runsPerCommand = 5;
+
+function runProcOpen(string $exe, array $args): array
+{
+    $cmd = array_merge([$exe], $args);
+
+    $desc = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+
+    $start = microtime(true);
+    $process = proc_open($cmd, $desc, $pipes, null, null, ['bypass_shell' => true]);
+
+    if (!is_resource($process)) {
+        return [
+            'ok' => false,
+            'duration' => microtime(true) - $start,
+            'exitCode' => -999,
+            'stdout' => '',
+            'stderr' => 'proc_open fehlgeschlagen',
+        ];
+    }
+
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    $exitCode = proc_close($process);
+    $duration = microtime(true) - $start;
+
+    return [
+        'ok' => true,
+        'duration' => $duration,
+        'exitCode' => $exitCode,
+        'stdout' => $stdout,
+        'stderr' => $stderr,
+    ];
+}
+
+function preview(string $text, int $maxLen = 180): string
+{
+    $text = trim(preg_replace('/\s+/', ' ', $text));
+    if (mb_strlen($text) <= $maxLen) {
+        return $text;
+    }
+    return mb_substr($text, 0, $maxLen) . ' ...';
+}
+
+echo "Ultra CLI Benchmark startet\n";
+echo "EXE: $exe\n";
+echo "LOG: $log\n\n";
+
+foreach ($commands as $name => $args) {
+    echo "============================================================\n";
+    echo "Kommando: $name\n";
+    echo "Args    : " . implode(' ', array_map(
+        static fn($v) => preg_match('/\s/', $v) ? "\"$v\"" : $v,
+        $args
+    )) . "\n\n";
+
+    $times = [];
+
+    for ($i = 1; $i <= $runsPerCommand; $i++) {
+        $result = runProcOpen($exe, $args);
+        $times[] = $result['duration'];
+
+        printf(
+            "#%d  %.3f s  exit=%d  stdout=%d B  stderr=%d B\n",
+            $i,
+            $result['duration'],
+            $result['exitCode'],
+            strlen($result['stdout']),
+            strlen($result['stderr'])
+        );
+
+        $stdoutPreview = preview($result['stdout']);
+        $stderrPreview = preview($result['stderr']);
+
+        if ($stdoutPreview !== '') {
+            echo "    stdout: $stdoutPreview\n";
+        }
+        if ($stderrPreview !== '') {
+            echo "    stderr: $stderrPreview\n";
+        }
+    }
+
+    $avg = array_sum($times) / count($times);
+    $min = min($times);
+    $max = max($times);
+
+    echo "\n";
+    printf(
+        "ERGEBNIS %-10s -> avg=%.3f s | min=%.3f s | max=%.3f s\n\n",
+        $name,
+        $avg,
+        $min,
+        $max
+    );
+}

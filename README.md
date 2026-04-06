@@ -8,20 +8,19 @@ Logeinträge können gefiltert, durchsucht und seitenweise geladen werden. Dabei
 
 > **Hinweis:** Dieses Modul ist ausschließlich für die **neue Kachelansicht (Tile View)** von IP-Symcon entwickelt.  
 > Die klassische WebFront-Ansicht wird **nicht unterstützt**.
-> Linux und Linux in VMs, sowie Windows basierte Systeme werden voll unterstützt. Docker, MAC, PI verwenden kein "tac" und werden auf grep umgestellt, was nicht ganz so viel Leistung vei großen bringt. Log-Dateien bis 6 MB können mit PHP eingebauten Mitteln auf allen Systemen verarbeitet werden. Eine Ultra-schnelle Datenanalyse ist bereits als Erweiterung in Arbeit.
 
 ---
 
 ### Inhaltsverzeichnis
 
-1. [Funktionsumfang](#1-funktionsumfang)  
-2. [Voraussetzungen](#2-voraussetzungen)  
-3. [Software-Installation](#3-software-installation)  
-4. [Einrichten der Instanzen in Symcon](#4-einrichten-der-instanzen-in-symcon)  
-5. [Statusvariablen und Profile](#5-statusvariablen-und-profile)  
-6. [Visualisierung](#6-visualisierung)  
-7. [PHP-Befehlsreferenz](#7-php-befehlsreferenz)  
-8. [Screenshots](#8-screenshots)  
+1. Funktionsumfang  
+2. Voraussetzungen  
+3. Software-Installation  
+4. Einrichten der Instanzen in Symcon  
+5. Statusvariablen und Profile  
+6. Visualisierung  
+7. PHP-Befehlsreferenz  
+8. Screenshots  
 
 ---
 
@@ -41,6 +40,10 @@ Logeinträge können gefiltert, durchsucht und seitenweise geladen werden. Dabei
 - Umschaltbares Theme (Dark / Light)  
 - Umschaltbarer kompakter Darstellungsmodus  
 - Auswahl verschiedener Betriebsmodi zur Performance-Optimierung  
+- Auswahl der Logdatei direkt in der Tile  
+- CSV-Export im Ultra-Modus  
+- Temporäre Downloadlinks für CSV-Exporte  
+- Automatische Bereinigung abgelaufener Exportdateien  
 
 ### Betriebsmodi
 
@@ -56,58 +59,78 @@ Das Modul stellt drei Betriebsmodi zur Verfügung:
 - Höhere Performance bei großen Logdateien  
 
 **Ultra**
-- Reserviert für zukünftige Erweiterungen  
-- Aktuell ohne eigene Implementierung  
-
-## Unterstützte Betriebssysteme
-
-Der LogAnalyzer läuft auf allen von IP-Symcon unterstützten Systemen:
-
-- Linux (empfohlen für große Logdateien)
-- Windows
-- macOS
-- Docker / Container-Umgebungen
-- NAS-Systeme mit Symcon (z. B. Synology, QNAP)
-
-Je nach Betriebssystem wird automatisch der optimale Verarbeitungsweg gewählt.
-
-### Unterschiede je Betriebssystem
-
-**Linux / Unix**
-- Nutzung von Systemwerkzeugen (`tail`, `grep`, `awk`, `wc`)
-- Sehr hohe Performance bei großen Logdateien
-- Optional Verwendung von `tac`
-
-**Windows**
-- Optimiertes blockweises Rückwärtslesen per PHP
-- Keine externen Tools notwendig
-
-**macOS / Docker / minimalistische Systeme**
-- Nutzung vorhandener Unix-Tools
-- Automatische Fallbacks wenn Tools fehlen
+- Nutzung eines externen Ultra CLI Tools  
+- Höchste Performance  
+- Unterstützt:
+  - schnelle Seitenabfragen
+  - Trefferzählung
+  - Filtermetadaten
+  - CSV-Export
+- Erfordert ein installiertes Ultra CLI Tool  
 
 ---
 
-## Verwendung von `tac`
+## CSV-Export (Ultra-Modus)
 
-Auf Unix-Systemen wird optional das Kommando `tac` verwendet, um Logzeilen effizient rückwärts auszugeben.
+Im Ultra-Modus stehen Exportfunktionen zur Verfügung:
 
-- Wenn `tac` vorhanden ist → wird es automatisch genutzt
-- Wenn `tac` nicht vorhanden ist → wird automatisch ein AWK-Fallback verwendet
-- Keine manuelle Konfiguration erforderlich
+- Gesamtes Filterergebnis exportieren
+- Aktuellen Seitenbereich exportieren
 
-Hinweis:
-- Linux: `tac` meist vorhanden
-- macOS: standardmäßig **nicht** vorhanden
-- Docker: abhängig vom Base-Image
-- BusyBox / minimal Systeme: meist nicht vorhanden
+Eigenschaften:
+
+- Export erfolgt über Ultra CLI
+- Datei wird temporär gespeichert
+- Download erfolgt über signierten Token-Link
+- Mehrere Exporte gleichzeitig möglich
+- Automatische TTL-basierte Bereinigung
+
+---
+
+## Sicherheit (Download-Hook)
+
+Der CSV-Download erfolgt über einen internen WebHook:
+
+```
+/hook/loganalyzer/<InstanceID>/download?token=<token>
+```
+
+Sicherheitsmechanismen:
+
+- Zufälliger Token pro Export
+- Token-Formatprüfung
+- Serverseitige Token-Validierung
+- Kein Zugriff auf beliebige Dateien möglich
+- Keine Ausführung von Befehlen über URL
+- Zugriff nur auf intern registrierte Exportdateien
+- Automatische TTL-basierte Löschung
+- Kein Directory Traversal möglich
+
+Der Hook ist somit auch bei aktivem Connect-Dienst sicher nutzbar.
+
+---
+
+## Unterstützte Betriebssysteme
+
+Getestete Systeme:
+
+- Linux Debian 13
+- Windows 11
+- Docker (Debian basierend)
+
+Weitere Systeme sollten grundsätzlich funktionieren, sind jedoch nicht getestet:
+
+- macOS
+- NAS-Systeme
+- andere Linux Distributionen
 
 ---
 
 ## 2. Voraussetzungen
 
-- IP-Symcon ab Version **8.2** empfohlen  
-- Zugriff auf eine gültige Logdatei (z. B. `logfile.log`)  
+- IP-Symcon ab Version **8.1** empfohlen  
+- Zugriff auf eine gültige Logdatei  
+- Ultra CLI Tool (nur für Ultra-Modus erforderlich)  
 
 ---
 
@@ -129,8 +152,8 @@ https://www.symcon.de/service/dokumentation/konzepte/instanzen/#Instanz_hinzufü
 
 ### __Konfigurationsseite__:
 
-Es sind keine Elemente zum Konfigurieren vorhanden.
-Es kann alles auf der Tile Visu Frontseite von Symcon konfiguriert werden.
+Die meisten Einstellungen erfolgen direkt in der Tile-Visualisierung.  
+Für den Ultra-Modus muss zusätzlich der Pfad zur Ultra CLI im Backend hinterlegt werden.
 
 ---
 
@@ -156,12 +179,6 @@ Die Visualisierung stellt eine interaktive Oberfläche zur Analyse der Logdaten 
 - Sender (Multi-Select)  
 - Freitextsuche  
 
-**Direkte Filterübernahme**
-- Doppelklick auf eine Objekt-ID in der Tabelle übernimmt den Wert in den Objekt-ID-Filter  
-- Mehrere Objekt-IDs können durch mehrfachen Doppelklick gesammelt werden  
-- Bereits vorhandene Einträge werden nicht doppelt übernommen  
-- Filter wird erst nach Klick auf „Filter anwenden“ aktiv
-
 **Bedienelemente**
 - Filter anwenden  
 - Aktualisieren  
@@ -169,6 +186,7 @@ Die Visualisierung stellt eine interaktive Oberfläche zur Analyse der Logdaten 
 - Theme-Auswahl (Dark / Light)  
 - Kompaktmodus  
 - Auswahl des Betriebsmodus (Standard / System / Ultra)  
+- CSV Export (Ultra)  
 
 **Statusanzeige**
 - Aktuelle Datei  
@@ -185,14 +203,6 @@ Die Visualisierung stellt eine interaktive Oberfläche zur Analyse der Logdaten 
 - Meldungstyp  
 - Sender  
 - Meldung  
-- Scrollbarer Tabellenbereich  
-- Sticky Tabellenkopf  
-
-**Ladeanzeige**
-- Anzeige während:
-  - Tabellenladung  
-  - Trefferzählung  
-  - Filtermetadaten-Ermittlung  
 
 ---
 
@@ -229,6 +239,7 @@ Ansicht im Konfigurationsformular des Moduls:
 ## Hinweise
 
 - Große Logdateien werden seitenweise geladen  
-- Filteroptionen werden dynamisch aus der Logdatei ermittelt  
-- Trefferanzahl wird asynchron berechnet  
-- Der Ultra-Modus ist aktuell noch reserviert für zukünftige Erweiterungen  
+- Ultra-Modus benötigt externes CLI Tool  
+- CSV-Export nur im Ultra-Modus verfügbar  
+- Exportdateien werden automatisch gelöscht  
+- Verhalten kann je nach Plattform variieren  

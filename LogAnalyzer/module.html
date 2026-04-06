@@ -133,6 +133,10 @@
                 <button id="btnReload" class="secondary">Aktualisieren</button>
                 <button id="btnZurueck" class="secondary">Neuere</button>
                 <button id="btnVor" class="secondary">Ältere</button>
+				
+				<!-- Exporte Gesmat aktuell ausgeblendet, da auch voll wenn kein Filter gesetzt -->
+				<button id="btnCsvExportGesamt" class="secondary" hidden>CSV komplett</button>
+				<button id="btnCsvExportSeite" class="secondary">CSV</button>
 
             </div>
         </div>
@@ -145,6 +149,7 @@
             <div id="metaTreffer">Treffer: -</div>
             <div id="metaLadezeit">Ladezeit Tabelle: -</div>
             <div id="metaFilterLadezeit">Ladezeit Filter: -</div>
+            <div id="metaBuildLadezeit">Ladezeit Build: -</div>
             <div id="metaStand">Stand: -</div>
         </div>
 
@@ -158,6 +163,8 @@
 
         <!-- Bereich für Fehlermeldungen -->
         <div id="message" class="message"></div>
+		
+		<div id="csvExportBox" class="message" style="display:none;"></div>
 
         <!-- Tabellenanzeige der Logeinträge -->
         <div class="table-wrap">
@@ -210,7 +217,7 @@
         { selectId: 'betriebsmodusSelect', customId: 'betriebsmodusCustom' }
     ];
 
-    // Escaped HTML-Sonderzeichen für sichere Ausgabe
+    // Escaped HTML-Sonderzeichen für sichere Ausgabe im DOM
     function escapeHtml(value) {
         return String(value)
             .replaceAll('&', '&amp;')
@@ -220,7 +227,7 @@
             .replaceAll("'", '&#039;');
     }
 
-    // Formatiert Zahlen für die Anzeige
+    // Formatiert Zahlen für die Anzeige (de-DE)
     function formatInteger(value) {
         const num = Number(value);
         if (!Number.isFinite(num)) {
@@ -229,18 +236,18 @@
         return Math.round(num).toLocaleString('de-DE');
     }
 
-    // Entfernt leere und doppelte Werte
+    // Entfernt leere Werte und Duplikate aus einer Liste
     function uniqueValues(values) {
         return Array.from(new Set((Array.isArray(values) ? values : []).map(v => String(v).trim()).filter(Boolean)));
     }
 
-    // Liest die gesetzten Werte eines Multi-Selects aus
+    // Liefert die aktuell ausgewählten Werte eines Multi-Selects zurück
     function getSelectedValues(optionsId) {
         return Array.from(document.querySelectorAll('#' + optionsId + ' input[type="checkbox"]:checked'))
             .map((input) => input.value);
     }
 
-    // Befüllt ein Multi-Select mit Optionen und Auswahl
+    // Befüllt ein Multi-Select mit verfügbaren Werten und setzt aktive Auswahl
     function populateMultiSelect(optionsId, values, selectedValues) {
         const container = document.getElementById(optionsId);
         const allValues = uniqueValues([...(Array.isArray(values) ? values : []), ...(Array.isArray(selectedValues) ? selectedValues : [])]);
@@ -266,7 +273,7 @@
         });
     }
 
-    // Aktualisiert den Button-Text eines Multi-Selects
+    // Aktualisiert den Button-Text eines Multi-Selects anhand der Auswahl
     function updateMultiSelectButtonText(optionsId) {
         const mapping = {
             filterTypOptions: 'filterTypButton',
@@ -289,7 +296,7 @@
         button.textContent = selected.length + ' ausgewählt';
     }
 
-    // Synchronisiert einen sichtbaren Custom-Select mit seinem versteckten nativen Select
+    // Synchronisiert ein einzelnes Custom-Select mit seinem nativen Select
     function syncCustomSelect(selectId, customId) {
         const select = document.getElementById(selectId);
         const custom = document.getElementById(customId);
@@ -344,14 +351,14 @@
 		button.appendChild(textSpan);
     }
 
-    // Synchronisiert alle sichtbaren Custom-Selects mit den nativen Selects
+    // Synchronisiert alle Custom-Selects mit den nativen Select-Elementen
     function syncAllCustomSelects() {
         CUSTOM_SELECT_MAPPINGS.forEach(({ selectId, customId }) => {
             syncCustomSelect(selectId, customId);
         });
     }
 
-    // Initialisiert die Bedienung eines einfachen Custom-Selects
+    // Initialisiert ein Custom-Select und verknüpft es mit einem nativen Select
     function initCustomSelect(selectId, customId) {
         const select = document.getElementById(selectId);
         const custom = document.getElementById(customId);
@@ -385,7 +392,7 @@
         syncCustomSelect(selectId, customId);
     }
 
-    // Sammelt alle aktuellen Filterwerte aus der Oberfläche
+    // Sammelt alle gesetzten Filterwerte aus der Oberfläche
     function collectFilterData() {
         return {
             filterTypen: getSelectedValues('filterTypOptions'),
@@ -400,7 +407,7 @@
         syncAllCustomSelects();
     }
 
-    // Wendet Theme- und Kompakt-Einstellungen auf die Ansicht an
+    // Wendet Theme- und Kompaktmodus-Einstellungen auf die Oberfläche an
     function applyViewSettings(status) {
         const theme = (status.theme || 'dark') === 'light' ? 'light' : 'dark';
         const kompakt = !!status.kompakt;
@@ -421,7 +428,7 @@
         });
     }
 
-    // Nimmt neue Daten entgegen und startet das Rendering
+    // Nimmt neue Daten vom Backend entgegen, validiert sie und startet das Rendering
 	function handleMessage(data) {
 		try {
 			let parsed = data;
@@ -453,7 +460,7 @@
 		}
 	}
 
-    // Um per Doppelklick IDs in den Filter zu nehmen
+    // Übernimmt eine ObjektID per Doppelklick in den ObjektID-Filter
     function uebernehmeObjektIdInFilter(objektId) {
         const input = document.getElementById('objektIdFilter');
         if (!input) {
@@ -477,8 +484,68 @@
         input.value = vorhandene.join(', ');
     }
 
-    // Rendert die vollständige Oberfläche neu
-    // Rendert die vollständige Oberfläche neu
+	// Übernimmt eine ObjektID per Doppelklick in den ObjektID-Filter
+	function renderCsvExportListe(data) {
+		const csvExportBox = document.getElementById('csvExportBox');
+		const istUltra = String(data?.betriebsmodus || '') === 'ultra';
+
+		if (!csvExportBox) {
+			return;
+		}
+
+		const meldungen = [];
+		const liste = Array.isArray(data?.csvExportListe) ? data.csvExportListe : [];
+
+		if (data?.csvExportLaeuft) {
+			meldungen.push('<div><strong>CSV Export wird erstellt …</strong></div>');
+		}
+
+		if (data?.csvExportFehlermeldung) {
+			meldungen.push('<div>' + escapeHtml(data.csvExportFehlermeldung) + '</div>');
+		}
+
+		if (liste.length > 0) {
+			let html = '<div><strong>CSV-Downloads</strong></div>';
+			html += '<div class="csv-export-list">';
+
+			liste.forEach((eintrag) => {
+				const token = escapeHtml(eintrag.token || '');
+				const dateiname = escapeHtml(eintrag.dateiname || 'export.csv');
+				const scopeText = escapeHtml(eintrag.scopeText || '');
+				const groesse = escapeHtml(eintrag.dateigroesseFormatiert || '');
+				const ablauf = escapeHtml(eintrag.laeuftAbText || '');
+				const logDatei = escapeHtml(eintrag.logDatei || '');
+				const downloadUrl = String(eintrag.downloadUrl || '').trim();
+				const downloadLink = downloadUrl !== ''
+					? '<a href="' + escapeHtml(downloadUrl) + '" target="_blank" rel="noopener">Download</a>'
+					: '';
+
+				const deleteLink = '<a href="#" data-csv-delete-token="' + token + '">Löschen</a>';
+				const aktuellHinweis = eintrag.istAktuelleLogDatei ? ' · aktuelle Logdatei' : '';
+
+				html += '<div class="csv-export-entry">';
+				html += '<div><strong>' + dateiname + '</strong></div>';
+				html += '<div>' + scopeText
+					+ (groesse ? ' · ' + groesse : '')
+					+ (ablauf ? ' · gültig bis ' + ablauf : '')
+					+ aktuellHinweis
+					+ '</div>';
+				if (logDatei) {
+					html += '<div>' + logDatei + '</div>';
+				}
+				html += '<div>' + [downloadLink, deleteLink].filter(Boolean).join(' · ') + '</div>';
+				html += '</div>';
+			});
+
+			html += '</div>';
+			meldungen.push(html);
+		}
+
+		csvExportBox.innerHTML = meldungen.join('');
+		csvExportBox.style.display = ((istUltra && meldungen.length > 0) || liste.length > 0) ? 'block' : 'none';
+	}
+
+	// Rendert die komplette Oberfläche anhand der aktuellen Datenstruktur
     function render(data) {
         currentData = data || {};
 
@@ -533,6 +600,9 @@
         document.getElementById('metaStand').textContent = 'Stand: ' + (currentData.zeitstempel || '-');
         document.getElementById('metaLadezeit').textContent = 'Ladezeit Tabelle: ' + ((currentData.ladezeitMs ?? 0)) + ' ms';
         document.getElementById('metaFilterLadezeit').textContent = 'Ladezeit Filter: ' + ((currentData.filterLadezeitMs ?? 0) > 0 ? (currentData.filterLadezeitMs + ' ms') : '-');
+        const istUltra = String(currentData.betriebsmodus || '') === 'ultra';
+        const buildDauerMs = Number(currentData.ultraBuildDauerMs ?? status.ultraBuildDauerMs ?? 0);
+        document.getElementById('metaBuildLadezeit').textContent = istUltra && buildDauerMs > 0 ? ('Ladezeit Build: ' + buildDauerMs + ' ms') : 'Ladezeit Build: -';
 
         document.getElementById('betriebsmodusSelect').value = currentData.betriebsmodus || 'standard';
         syncAllCustomSelects();
@@ -567,39 +637,20 @@
                 ? currentData.anzeigeLadebalkenText.trim()
                 : (fallbackTabellenText || 'Tabelle wird geladen …');
 
-        const hintergrundAktiv =
-            typeof currentData.anzeigeHintergrundlaufend === 'boolean'
-                ? currentData.anzeigeHintergrundlaufend
-                : (!fallbackLaedtTabelle && (fallbackLaedtTreffer || fallbackLaedtFilter));
+        const hintergrundAktiv = false;
+        const hintergrundText = '';
 
-        let hintergrundText =
-            typeof currentData.anzeigeHintergrundText === 'string'
-                ? currentData.anzeigeHintergrundText.trim()
-                : '';
-
-        if (!hintergrundText) {
-            if (fallbackLaedtTreffer && fallbackLaedtFilter) {
-                hintergrundText = 'Treffer und Filteroptionen werden ermittelt …';
-            } else if (fallbackLaedtTreffer) {
-                hintergrundText = 'Treffer werden ermittelt …';
-            } else if (fallbackLaedtFilter) {
-                hintergrundText = 'Filteroptionen werden geladen …';
-            }
-        }
-
-        if (ladebalkenAktiv || hintergrundAktiv) {
+        if (ladebalkenAktiv) {
             statusActivity.classList.add('active');
-            statusActivityText.textContent = ladebalkenAktiv ? ladebalkenText : hintergrundText;
-
+            statusActivityText.textContent = ladebalkenText;
             if (statusActivityTrack) {
-                statusActivityTrack.style.display = ladebalkenAktiv ? '' : 'none';
+                statusActivityTrack.style.display = '';
             }
         } else {
             statusActivity.classList.remove('active');
             statusActivityText.textContent = '';
-
             if (statusActivityTrack) {
-                statusActivityTrack.style.display = '';
+                statusActivityTrack.style.display = 'none';
             }
         }
 
@@ -611,6 +662,21 @@
             msg.style.display = 'none';
             msg.textContent = '';
         }
+
+		const btnCsvExportGesamt = document.getElementById('btnCsvExportGesamt');
+		const btnCsvExportSeite = document.getElementById('btnCsvExportSeite');
+		const csvExportLaeuft = !!currentData.csvExportLaeuft;
+
+		if (btnCsvExportGesamt) {
+			btnCsvExportGesamt.style.display = istUltra ? '' : 'none';
+			btnCsvExportGesamt.disabled = !istUltra || csvExportLaeuft;
+		}
+		if (btnCsvExportSeite) {
+			btnCsvExportSeite.style.display = istUltra ? '' : 'none';
+			btnCsvExportSeite.disabled = !istUltra || csvExportLaeuft;
+		}
+
+		renderCsvExportListe(currentData);
 
         const tbody = document.getElementById('tbody');
         const rows = Array.isArray(currentData.zeilen) ? currentData.zeilen : [];
@@ -626,15 +692,11 @@
 
         if (ladebalkenAktiv && rows.length === 0) {
             tbody.innerHTML = '<tr><td colspan="5" class="empty">Lade Daten …</td></tr>';
-            triggerCountIfNeeded(currentData);
-            triggerFilterMetaIfNeeded(currentData);
             return;
         }
 
         if (!ladebalkenAktiv && rows.length === 0 && hintergrundAktiv) {
             tbody.innerHTML = '<tr><td colspan="5" class="empty">Status wird aktualisiert …</td></tr>';
-            triggerCountIfNeeded(currentData);
-            triggerFilterMetaIfNeeded(currentData);
             return;
         }
 
@@ -679,11 +741,10 @@
             document.getElementById('btnVor').disabled = !currentData.hatWeitere;
         }
 
-        // Trigger nur noch mit harter Schutzlogik
-        triggerCountIfNeeded(currentData);
-        triggerFilterMetaIfNeeded(currentData);
+
     }
 
+	// Erstellt eine Signatur zur Erkennung identischer asynchroner Requests
     function buildAsyncSignature(data, kind) {
         const status = data && data.status ? data.status : {};
 
@@ -713,132 +774,17 @@
         return basis;
     }
 	
-    // Startet die Trefferzählung bei Bedarf
+    // Prüft, ob eine Trefferzählung gestartet werden muss (derzeit deaktiviert)
     function triggerCountIfNeeded(data) {
-        const current = data || currentData || {};
-        const status = current.status || {};
-
-        const ladebalkenAktiv =
-            typeof current.anzeigeLadebalken === 'boolean'
-                ? current.anzeigeLadebalken
-                : Boolean(current.tabellenLadungLaeuft || status.tabellenLadungLaeuft);
-
-        const zaehlungLaeuft = Boolean(current.zaehlungLaeuft);
-        const trefferGesamt = Number(current.trefferGesamt ?? -1);
-        const fehlermeldung = String(current.fehlermeldung || '').trim();
-
-        const signature = buildAsyncSignature(current, 'count');
-        const now = Date.now();
-        const cooldownMs = 1200;
-
-        if (fehlermeldung !== '') {
-            return;
-        }
-
-        // Während echte Tabellenladung läuft, nichts zusätzlich lostreten
-        if (ladebalkenAktiv) {
-            return;
-        }
-
-        // Backend meldet bereits laufende Zählung
-        if (zaehlungLaeuft) {
-            asyncTriggerState.count.inFlight = true;
-            asyncTriggerState.count.lastSignature = signature;
-            return;
-        }
-
-        // Treffer sind bereits bekannt -> kein weiterer Trigger
-        if (Number.isFinite(trefferGesamt) && trefferGesamt >= 0) {
-            asyncTriggerState.count.inFlight = false;
-            asyncTriggerState.count.lastSignature = signature;
-            return;
-        }
-
-        // Gleiche Anfrage wurde gerade eben bereits ausgelöst
-        if (
-            asyncTriggerState.count.lastSignature === signature &&
-            (asyncTriggerState.count.inFlight || (now - asyncTriggerState.count.lastStartedAt) < cooldownMs)
-        ) {
-            return;
-        }
-
-        asyncTriggerState.count.inFlight = true;
-        asyncTriggerState.count.lastSignature = signature;
-        asyncTriggerState.count.lastStartedAt = now;
-
-        console.debug('[LogAnalyzer] triggerCountIfNeeded', {
-            signature,
-            trefferGesamt,
-            zaehlungLaeuft,
-            ladebalkenAktiv
-        });
-
-        requestAction('ZaehleTreffer', '');
+        return;
     }
 
-    // Startet das Laden der Filtermetadaten bei Bedarf
+    // Prüft, ob Filtermetadaten neu geladen werden müssen (derzeit deaktiviert)
     function triggerFilterMetaIfNeeded(data) {
-        const current = data || currentData || {};
-        const status = current.status || {};
-
-        const ladebalkenAktiv =
-            typeof current.anzeigeLadebalken === 'boolean'
-                ? current.anzeigeLadebalken
-                : Boolean(current.tabellenLadungLaeuft || status.tabellenLadungLaeuft);
-
-        const filterLaeuft = Boolean(current.filterMetadatenLaeuft);
-        const filterGeladen = Boolean(current.filterMetadatenGeladen);
-        const fehlermeldung = String(current.fehlermeldung || '').trim();
-
-        const signature = buildAsyncSignature(current, 'filter');
-        const now = Date.now();
-        const cooldownMs = 1200;
-
-        if (fehlermeldung !== '') {
-            return;
-        }
-
-        // Während Tabellenladung keine zusätzliche Filter-Meta-Nachladung
-        if (ladebalkenAktiv) {
-            return;
-        }
-
-        // Backend meldet bereits laufende Filterladung
-        if (filterLaeuft) {
-            asyncTriggerState.filter.inFlight = true;
-            asyncTriggerState.filter.lastSignature = signature;
-            return;
-        }
-
-        // Filter sind bereits geladen -> nichts tun
-        if (filterGeladen) {
-            asyncTriggerState.filter.inFlight = false;
-            asyncTriggerState.filter.lastSignature = signature;
-            return;
-        }
-
-        // Gleiche Anfrage wurde gerade eben bereits ausgelöst
-        if (
-            asyncTriggerState.filter.lastSignature === signature &&
-            (asyncTriggerState.filter.inFlight || (now - asyncTriggerState.filter.lastStartedAt) < cooldownMs)
-        ) {
-            return;
-        }
-
-        asyncTriggerState.filter.inFlight = true;
-        asyncTriggerState.filter.lastSignature = signature;
-        asyncTriggerState.filter.lastStartedAt = now;
-
-        console.debug('[LogAnalyzer] triggerFilterMetaIfNeeded', {
-            signature,
-            filterGeladen,
-            filterLaeuft,
-            ladebalkenAktiv
-        });
-
-        requestAction('LadeFilterOptionen', '');
+        return;
     }
 
+	// Gibt Debug-Informationen zum aktuellen Aktivitäts- und Ladezustand aus
 	function debugActivityState(data, source) {
 		const status = data?.status || {};
 		const isUltra = (data?.betriebsmodus || '') === 'ultra';
@@ -952,6 +898,25 @@
     document.getElementById('betriebsmodusSelect').addEventListener('change', (event) => {
         requestAction('SetzeBetriebsmodus', event.target.value);
     });
+	
+	document.getElementById('btnCsvExportGesamt').addEventListener('click', () => {
+		requestAction('CsvExportGesamt', '');
+	});
+
+	document.getElementById('btnCsvExportSeite').addEventListener('click', () => {
+		requestAction('CsvExportSeite', '');
+	});
+
+document.addEventListener('click', (event) => {
+    const deleteButton = event.target.closest('[data-csv-delete-token]');
+    if (deleteButton) {
+        event.preventDefault();
+        const token = String(deleteButton.dataset.csvDeleteToken || '').trim();
+        if (token !== '') {
+            requestAction('CsvExportLoeschen', token);
+        }
+    }
+});
 
     // Initialisierung der einfachen Custom-Selects
     CUSTOM_SELECT_MAPPINGS.forEach(({ selectId, customId }) => {

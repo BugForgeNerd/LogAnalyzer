@@ -78,23 +78,25 @@ trait LogAnalyzerSystemTrait
 		}
 	}
 
-    /**
-     * ladeLogZeilenWindows
-     *
-     * Lädt Logzeilen im Systemmodus unter Windows.
-     * - Nutzt je nach Filterlage PHP oder zeilenweises Einlesen
-     * - Pflegt den Seiten-Cache für die Anzeige
-     *
-     * Parameter: array $status
-     * Rückgabewert: array
-     */
+	/**
+	 * ladeLogZeilenWindows
+	 *
+	 * Lädt Logzeilen im Systemmodus unter Windows.
+	 * - Nutzt ohne aktive Filter rückwärtsgerichtetes Lesen (Tail-ähnlich)
+	 * - Verwendet bei aktiven Filtern einen Streaming-Filter mit Queue
+	 * - Pflegt den Seiten-Cache für die Anzeige
+	 *
+	 * Parameter: array $status
+	 * Rückgabewert: array
+	 */
 	private function ladeLogZeilenWindows(array $status): array
 	{
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$seite = max(0, (int) ($status['seite'] ?? 0));
 		$take = (($seite + 1) * $maxZeilen) + 1;
 		$head = $maxZeilen + 1;
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktiveLogDatei();
+		$offset = $seite * $maxZeilen;
 
 		$dateiGroesse = is_file($logDatei) ? (int) filesize($logDatei) : 0;
 		$dateiMTime = is_file($logDatei) ? (int) filemtime($logDatei) : 0;
@@ -116,8 +118,8 @@ trait LogAnalyzerSystemTrait
 				$zeilen[] = $parsed;
 			}
 
-			$sichtbarerBlock = array_slice($zeilen, 0, $head);
-			$hatWeitere = count($zeilen) > $maxZeilen;
+			$sichtbarerBlock = array_slice($zeilen, $offset, $maxZeilen + 1);
+			$hatWeitere = count($sichtbarerBlock) > $maxZeilen;
 
 			if ($hatWeitere) {
 				array_pop($sichtbarerBlock);
@@ -230,9 +232,14 @@ trait LogAnalyzerSystemTrait
 			fclose($handle);
 		}
 
-		$sichtbarerBlock = array_slice($queue, 0, min($head, count($queue)));
+		$sichtbarerBlock = array_slice($queue, 0, min($maxZeilen + 1, count($queue)));
+		$hatWeitere = count($sichtbarerBlock) > $maxZeilen;
+
+		if ($hatWeitere) {
+			array_shift($sichtbarerBlock);
+		}
+
 		$zeilen = array_reverse($sichtbarerBlock);
-		$hatWeitere = $gesamtTreffer > (($seite + 1) * $maxZeilen);
 
 		$dauerMs = (int) round((microtime(true) - $start) * 1000);
 
@@ -270,19 +277,19 @@ trait LogAnalyzerSystemTrait
 		];
 	}
 
-    /**
-     * ermittleWindowsMetadatenUndGesamtmenge
-     *
-     * Ermittelt Filtermetadaten und Gesamtzeilen unter Windows.
-     * - Liest Typen, Sender und Zeilenanzahl direkt aus der Datei
-     * - Bereitet die Werte für die Filteranzeige auf
-     *
-     * Parameter: keine
-     * Rückgabewert: array
-     */
+	/**
+	 * ermittleWindowsMetadatenUndGesamtmenge
+	 *
+	 * Ermittelt Filtermetadaten und Gesamtzeilen unter Windows.
+	 * - Liest Typen, Sender und Zeilenanzahl direkt aus der Datei
+	 * - Aggregiert eindeutige Werte für die Filteranzeige
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: array
+	 */
 	private function ermittleWindowsMetadatenUndGesamtmenge(): array
 	{
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktiveLogDatei();
 
 		$typen = [];
 		$sender = [];
@@ -345,7 +352,7 @@ trait LogAnalyzerSystemTrait
      */
 	private function zaehleGefilterteZeilenWindows(array $status): int
 	{
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktiveLogDatei();
 		$anzahl = 0;
 
 		$handle = @fopen($logDatei, 'rb');
@@ -400,7 +407,7 @@ trait LogAnalyzerSystemTrait
      */
 	private function baueLinuxBefehl(array $status, int $take, int $head): string
 	{
-		$datei = escapeshellarg($this->ReadPropertyString('LogDatei'));
+		$datei = escapeshellarg($this->leseAktiveLogDatei());
 		$filterTypen = $this->normalisiereFilterTypen($status['filterTypen'] ?? []);
 		$objektIds = $this->normalisiereObjektIdFilterListe((string) ($status['objektIdFilter'] ?? ''));
 		$senderFilter = $this->normalisiereSenderFilter($status['senderFilter'] ?? []);
@@ -467,7 +474,7 @@ trait LogAnalyzerSystemTrait
      */
     private function baueWindowsBefehl(array $status, int $take): string
     {
-        $datei = str_replace("'", "''", $this->ReadPropertyString('LogDatei'));
+        $datei = str_replace("'", "''", $this->leseAktiveLogDatei());
         $filterTypen = $this->normalisiereFilterTypen($status['filterTypen'] ?? []);
         $objektIds = $this->normalisiereObjektIdFilterListe((string) ($status['objektIdFilter'] ?? ''));
         $senderFilter = $this->normalisiereSenderFilter($status['senderFilter'] ?? []);
@@ -565,7 +572,7 @@ trait LogAnalyzerSystemTrait
      */
 	private function baueLinuxZaehlerBefehl(array $status): string
 	{
-		$datei = escapeshellarg($this->ReadPropertyString('LogDatei'));
+		$datei = escapeshellarg($this->leseAktiveLogDatei());
 		$filterTypen = $this->normalisiereFilterTypen($status['filterTypen'] ?? []);
 		$objektIds = $this->normalisiereObjektIdFilterListe((string) ($status['objektIdFilter'] ?? ''));
 		$senderFilter = $this->normalisiereSenderFilter($status['senderFilter'] ?? []);
@@ -726,7 +733,7 @@ trait LogAnalyzerSystemTrait
      */
     private function baueWindowsZaehlerBefehl(array $status): string
     {
-        $datei = str_replace("'", "''", $this->ReadPropertyString('LogDatei'));
+        $datei = str_replace("'", "''", $this->leseAktiveLogDatei());
         $filterTypen = $this->normalisiereFilterTypen($status['filterTypen'] ?? []);
         $objektIds = $this->normalisiereObjektIdFilterListe((string) ($status['objektIdFilter'] ?? ''));
         $senderFilter = $this->normalisiereSenderFilter($status['senderFilter'] ?? []);
@@ -800,7 +807,7 @@ trait LogAnalyzerSystemTrait
      */
 	private function baueLinuxFilterMetadatenBefehl(): string
 	{
-		$datei = escapeshellarg($this->ReadPropertyString('LogDatei'));
+		$datei = escapeshellarg($this->leseAktiveLogDatei());
 
 		$awkProgramm = '
 	{
@@ -844,7 +851,7 @@ trait LogAnalyzerSystemTrait
      */
     private function baueWindowsFilterMetadatenBefehl(): string
     {
-        $datei = str_replace("'", "''", $this->ReadPropertyString('LogDatei'));
+        $datei = str_replace("'", "''", $this->leseAktiveLogDatei());
 
         $ps = [];
         $ps[] = 'Get-Content -Path ' . "'" . $datei . "'";
@@ -968,16 +975,16 @@ trait LogAnalyzerSystemTrait
         return implode(' -and ', $bedingungen);
     }
 
-    /**
-     * ermittleRueckwaertsBefehl
-     *
-     * Ermittelt ein Werkzeug zur umgekehrten Zeilenausgabe.
-     * - Nutzt bevorzugt tac und sonst einen AWK-Fallback
-     * - Speichert das Ergebnis für spätere Aufrufe zwischen
-     *
-     * Parameter: keine
-     * Rückgabewert: string
-     */
+	/**
+	 * ermittleRueckwaertsBefehl
+	 *
+	 * Ermittelt ein Werkzeug zur umgekehrten Zeilenausgabe.
+	 * - Nutzt bevorzugt tac und sonst einen AWK-Fallback
+	 * - Cached das Ergebnis statisch für Folgerufe
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: string
+	 */
 	private function ermittleRueckwaertsBefehl(): string
 	{
 		static $befehl = null;

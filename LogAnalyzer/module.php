@@ -6,41 +6,55 @@
  * sudo /etc/init.d/symcon restart
  *
  * ToDo:
- * - Ultra Version einbauen
- * - CSV Export neu implementieren
+ * - Hash Prüfung CLI Tool
+ * - Manchmal ist Laden im ultra Modus noch unsauber
+ * - Konfigurierbar wie lange csv in tmp, sowie maxmenge
+ * - Logfile Symlink auch ermöglich über Weiterleitung
  * - DarkLight Abruf vom Tile ausgehend
- * - Ladezeit Filter 0ms, wenn nicht notwendig zum Laden, bei Modi System
+ * - 
 */
 
 declare(strict_types=1);
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerSystemTrait.php';
 require_once __DIR__ . '/libs/LogAnalyzerUltraTrait.php';
+require_once __DIR__ . '/libs/LogAnalyzerUltraCsvExportTrait.php';
 
 class LogAnalyzer extends IPSModuleStrict
 {
 	use LogAnalyzerStandardTrait;
 	use LogAnalyzerSystemTrait;
 	use LogAnalyzerUltraTrait;
+	use LogAnalyzerUltraCsvExportTrait;
 
 	private const ATTR_STATUS = 'VisualisierungsStatus';
 	private const ATTR_FILTERMETA = 'FilterMetadaten';
 	private const ATTR_SEITENCACHE = 'SeitenCache';
+	private const ATTR_EXPORTE = 'ExportDateien';
+	private const ATTR_AKTIVE_LOGDATEI = 'AktiveLogDatei';
+	private const ATTR_AKTIVER_BETRIEBSMODUS = 'AktiverBetriebsmodus';
 
-    /**
-     * Create
-     *
-     * Wird beim Erstellen der Modulinstanz aufgerufen.
-     * - Registriert Eigenschaften, Attribute und Timer
-     * - Initialisiert Standardwerte für Status und Cache
-     *
-     * Parameter: keine
-     * Rückgabewert: void
-     */
+	/**
+	 * Create
+	 *
+	 * Wird beim Erstellen der Modulinstanz aufgerufen.
+	 * - Registriert Eigenschaften, Attribute, Exportdaten und Timer
+	 * - Initialisiert Standardwerte für Status, Filter-, Seiten- und Export-Cache
+	 * - Bereitet aktive Logdatei und aktiven Betriebsmodus als Attribute vor
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: void
+	 */
 	public function Create(): void
 	{
 		// nicht löschen
 		parent::Create();
+		
+		$hook = 'loganalyzer/' . $this->InstanceID;
+		$this->RegisterHook($hook);
+
+		$this->RegisterAttributeString(self::ATTR_AKTIVE_LOGDATEI, '');
+		$this->RegisterAttributeString(self::ATTR_AKTIVER_BETRIEBSMODUS, '');
 
 		$this->RegisterPropertyString('LogDatei', IPS_GetLogDir() . 'logfile.log');		// nur zu Initialisierung, wird später überschrieben
 		$this->RegisterPropertyInteger('MaxZeilen', 50);
@@ -48,6 +62,11 @@ class LogAnalyzer extends IPSModuleStrict
 		$this->RegisterPropertyInteger('AutoRefreshSekunden', 0);
 		$this->RegisterPropertyString('Betriebsmodus', 'standard');
 		$this->RegisterPropertyString('UltraProgrammPfad', '');
+
+		$this->RegisterAttributeString(self::ATTR_EXPORTE, json_encode([
+			'activeToken' => '',
+			'exports'     => []
+		], JSON_THROW_ON_ERROR));
 
 		$this->RegisterAttributeString(self::ATTR_STATUS, json_encode([
 			'seite'                    => 0,
@@ -66,10 +85,25 @@ class LogAnalyzer extends IPSModuleStrict
 			'tabellenLadungLaeuft'     => false,
 			'tabellenLadungText'       => '',
 			'letzteTabellenLadezeitMs' => 0,
+			'tabellenLadeStart'       => 0.0,
 			'ultraBuildLaeuft'         => false,
 			'ultraBuildDatei'          => '',
-			'ultraIndexBereit'         => false
+			'ultraIndexBereit'         => false,
+			'ultraBuildStart'          => 0.0,
+			'ultraBuildDauerMs'        => 0,
+			'csvExportLaeuft'            => false,
+			'csvExportBereit'            => false,
+			'csvExportFehlermeldung'     => '',
+			'csvExportToken'             => '',
+			'csvExportScope'             => 'all',
+			'csvExportDatei'             => '',
+			'csvExportDateiname'         => '',
+			'csvExportDateigroesseBytes' => 0,
+			'csvExportExportierteZeilen' => -1,
+			'csvExportLaeuftAbAm'        => 0,
+			'csvExportDownloadUrl'       => ''
 		], JSON_THROW_ON_ERROR));
+
 
 		$this->RegisterAttributeString(self::ATTR_FILTERMETA, json_encode([
 			'verfuegbareFilterTypen' => [],
@@ -99,22 +133,32 @@ class LogAnalyzer extends IPSModuleStrict
     {
 		// nicht löschen
         parent::Destroy();
+		
     }
 
-    /**
-     * ApplyChanges
-     *
-     * Wird bei Änderungen der Modulkonfiguration aufgerufen.
-     * - Aktualisiert Timer, Visualisierung und Zusammenfassung
-     * - Prüft und korrigiert den Logdateipfad bei Bedarf
-     *
-     * Parameter: keine
-     * Rückgabewert: void
-     */
+	/**
+	 * ApplyChanges
+	 *
+	 * Wird bei Änderungen der Modulkonfiguration aufgerufen.
+	 * - Aktualisiert Betriebsmodus, Timer, Visualisierung und Zusammenfassung
+	 * - Ermittelt und speichert bei Bedarf eine gültige aktive Logdatei
+	 * - Prüft den Logdateipfad und weicht bei Bedarf auf verfügbare Logdateien aus
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: void
+	 */
     public function ApplyChanges(): void
     {
 		// nicht löschen
         parent::ApplyChanges();
+
+		$this->schreibeAktivenBetriebsmodus($this->ReadPropertyString('Betriebsmodus'));
+
+		//$hook = 'loganalyzer/' . $this->InstanceID;
+		//if (IPS_GetKernelRunlevel() == KR_READY) {
+		//	$this->UnregisterHook($hook);
+		//	$this->RegisterHook($hook);
+		//}
 
 		// Tile Visu nutzen
         $this->SetVisualizationType(1);
@@ -122,13 +166,18 @@ class LogAnalyzer extends IPSModuleStrict
         $intervall = max(0, $this->ReadPropertyInteger('AutoRefreshSekunden')) * 1000;
         $this->SetTimerInterval('VisualisierungAktualisieren', $intervall);
 
-        $logDatei = $this->ReadPropertyString('LogDatei');
+        $logDatei = $this->leseAktiveLogDatei();
+		
+		if ($logDatei !== '') {
+			$this->schreibeAktiveLogDatei($logDatei);
+		}
 
 		if (!is_file($logDatei)) {
 			$verfuegbareDateien = $this->ermittleVerfuegbareLogdateien();
 			if (count($verfuegbareDateien) > 0) {
 				$logDatei = (string) $verfuegbareDateien[0]['pfad'];
-				IPS_SetProperty($this->InstanceID, 'LogDatei', $logDatei);
+				$this->schreibeAktiveLogDatei($logDatei);
+				//IPS_SetProperty($this->InstanceID, 'LogDatei', $logDatei);
 			}
 		}
 		
@@ -137,12 +186,98 @@ class LogAnalyzer extends IPSModuleStrict
             $summary .= ' · ' . $this->formatiereDateigroesse((int) filesize($logDatei));
         }
 		
-		if (IPS_GetProperty($this->InstanceID, 'LogDatei') !== $logDatei) {
-			IPS_ApplyChanges($this->InstanceID);
-			return;
-		}
         $this->SetSummary($summary);
     }
+
+	/**
+	 * leseAktiveLogDatei
+	 *
+	 * Ermittelt die aktuell zu verwendende Logdatei.
+	 * - Prüft zuerst das Attribut der aktiven Logdatei
+	 * - Fällt danach auf die konfigurierte Eigenschaft oder die neueste verfügbare Logdatei zurück
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: string
+	 */
+	private function leseAktiveLogDatei(): string
+	{
+		$aktiveDatei = trim($this->ReadAttributeString(self::ATTR_AKTIVE_LOGDATEI));
+		if ($aktiveDatei !== '' && is_file($aktiveDatei)) {
+			return $aktiveDatei;
+		}
+
+		$logDatei = $this->ReadPropertyString('LogDatei');
+		if ($logDatei !== '' && is_file($logDatei)) {
+			return $logDatei;
+		}
+
+		$verfuegbareDateien = $this->ermittleVerfuegbareLogdateien();
+		if (count($verfuegbareDateien) > 0) {
+			return (string) ($verfuegbareDateien[0]['pfad'] ?? '');
+		}
+
+		return $logDatei;
+	}
+
+	/**
+	 * schreibeAktiveLogDatei
+	 *
+	 * Speichert die aktuell verwendete Logdatei im Attribut.
+	 * - Übernimmt den übergebenen Pfad in bereinigter Form
+	 * - Dient als persistente Grundlage für Anzeige und Folgeverarbeitung
+	 *
+	 * Parameter: string $datei
+	 * Rückgabewert: void
+	 */
+	private function schreibeAktiveLogDatei(string $datei): void
+	{
+		$this->WriteAttributeString(self::ATTR_AKTIVE_LOGDATEI, trim($datei));
+	}
+
+	/**
+	 * leseAktivenBetriebsmodus
+	 *
+	 * Ermittelt den aktuell verwendeten Betriebsmodus.
+	 * - Prüft zuerst das Attribut des aktiven Betriebsmodus
+	 * - Fällt danach auf die Moduleigenschaft zurück und verwendet bei ungültigen Werten standard
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: string
+	 */
+	private function leseAktivenBetriebsmodus(): string
+	{
+		$modus = strtolower(trim($this->ReadAttributeString(self::ATTR_AKTIVER_BETRIEBSMODUS)));
+		if (in_array($modus, ['standard', 'system', 'ultra'], true)) {
+			return $modus;
+		}
+
+		$modus = strtolower(trim($this->ReadPropertyString('Betriebsmodus')));
+		if (in_array($modus, ['standard', 'system', 'ultra'], true)) {
+			return $modus;
+		}
+
+		return 'standard';
+	}
+
+	/**
+	 * schreibeAktivenBetriebsmodus
+	 *
+	 * Speichert den aktuell verwendeten Betriebsmodus im Attribut.
+	 * - Normalisiert den Wert auf einen gültigen Modus
+	 * - Verwendet standard als Rückfallwert bei ungültigen Eingaben
+	 *
+	 * Parameter: string $modus
+	 * Rückgabewert: void
+	 */
+	private function schreibeAktivenBetriebsmodus(string $modus): void
+	{
+		$modus = strtolower(trim($modus));
+		if (!in_array($modus, ['standard', 'system', 'ultra'], true)) {
+			$modus = 'standard';
+		}
+
+		$this->WriteAttributeString(self::ATTR_AKTIVER_BETRIEBSMODUS, $modus);
+	}
 
     /**
      * GetConfigurationForm
@@ -159,20 +294,83 @@ class LogAnalyzer extends IPSModuleStrict
 		$elements = [
 			[
 				"type"    => "Label",
-				"caption" => 'Alle Einstellungen werden direkt in der Tile View direkt konfiguriert.'
+				"caption" => 'Alle Einstellungen werden direkt in der Tile View konfiguriert.'
 			],
 			[
 				"type"    => "Label",
-				"caption" => 'Die alte WebFront Visualisierung wird nicht unterstützt. Weitere Infos sind in der Anleitung zu finden.'
+				"caption" => 'Die alte WebFront-Visualisierung wird nicht unterstützt. Weitere Infos sind in der Anleitung zu finden.'
 			],
 			[
 				"type"    => "ValidationTextBox",
 				"name"    => "UltraProgrammPfad",
-				"caption" => "Pfad zum Ultra-Programm"
+				"caption" => "Pfad zum Ultra-Programm",
+				"width"   => "500px"
 			],
 			[
-				"type"    => "Label",
-				"caption" => "Beispiel Debian 13: /usr/local/bin/loganalyzer_ultra_amd64-debian"
+				"type"    => "ExpansionPanel",
+				"caption" => "Hinweise zum Ultra-Modus",
+				"items"    => [
+					[
+						"type"    => "Label",
+						"caption" => "Im Modus \"Ultra\" nutzt das Modul ein externes Programm namens \"loganalyzer_ultra\", das in C++ programmiert wurde, um die Datenauswertung bei sehr großen Logdateien zu beschleunigen."
+					],
+					[
+						"type"    => "Label",
+						"caption" => "Der Modus lässt sich direkt in der Tile View auswählen. Die Nutzung des Programms erfordert jedoch eine einmalige manuelle Installation und Einrichtung."
+					],
+					[
+						"type"    => "Label",
+						"caption" => "Die kompilierte Version des Programms kann je nach Betriebssystem im Bereich \"Releases\" heruntergeladen werden:"
+					],
+					[
+						"type"    => "Label",
+						"caption" => "https://github.com/BugForgeNerd/LogAnalyzerUltra"
+					],
+					[
+						"type"    => "Label",
+						"caption" => "Das Modul muss wissen, an welchem Speicherort die Anwendung auf dem eigenen System abgelegt wurde."
+					],
+					[
+						"type"    => "Label",
+						"caption" => "Empfohlene Pfade:"
+					],
+					[
+						"type"    => "Label",
+						"caption" => "- Debian/Ubuntu-basierte Systeme: /usr/local/bin/"
+					],
+					[
+						"type"    => "Label",
+						"caption" => "- Windows-basierte Systeme: C:\\ProgramData\\loganalyzer_ultra\\"
+					],
+					[
+						"type"    => "Label",
+						"caption" => "- Docker-basierte Systeme: /var/lib/symcon/"
+					],
+					[
+						"type"    => "Label",
+						"caption" => "Bei Docker-basierten Systemen hängt der Pfad davon ab, wie Docker eingerichtet wurde."
+					],
+					[
+						"type"    => "Label",
+						"caption" => "Wurde die von Symcon empfohlene Einbindung verwendet, z. B. -v /opt/symcon/data:/var/lib/symcon, dann liegt die Datei innerhalb des Containers unter /var/lib/symcon/, auch wenn sie auf dem Host unter /opt/symcon/data abgelegt wurde."
+					],
+					[
+						"type"    => "Label",
+						"caption" => "Das bedeutet, dass im Modul bei einer Docker-Installation z. B. /var/lib/symcon/loganalyzer_ultra_amd64-debian eingetragen werden muss."
+					],
+					[
+						"type"    => "Label",
+						"caption" => "\"loganalyzer_ultra_amd64-debian\" steht dabei für die eigentliche Anwendung."
+					],
+					[
+						"type"    => "Label",
+						"caption" => "Auf Linux- und Docker-basierten Systemen muss die Anwendung zudem als ausführbar markiert werden."
+					],
+					[
+						"type"    => "Label",
+						"caption" => "Konsolenbefehl: chmod +x /Pfad/dateiname"
+					]
+				]
 			]
 		];
 
@@ -245,103 +443,95 @@ class LogAnalyzer extends IPSModuleStrict
      * Parameter: keine
      * Rückgabewert: string
      */
-    public function GetVisualizationTile(): string
-    {
-        $start = microtime(true);
-        $logDatei = $this->ReadPropertyString('LogDatei');
-        $modus = $this->ermittleAktivenModus();
-        $dateiGroesse = is_file($logDatei) ? (int) @filesize($logDatei) : 0;
+	public function GetVisualizationTile(): string
+	{
+		$start = microtime(true);
+		$logDatei = $this->leseAktiveLogDatei();
+		$modus = $this->ermittleAktivenModus();
 
-        $this->SendDebug(
-            'TileInit',
-            sprintf(
-                'phase=start modus=%s datei=%s groesseBytes=%d',
-                $modus,
-                basename($logDatei),
-                $dateiGroesse
-            ),
-            0
-        );
+		$datei = __DIR__ . '/module.html';
+		if (!is_file($datei)) {
+			return '<div style="padding:1rem;font-family:sans-serif;">module.html nicht gefunden.</div>';
+		}
 
-        $datei = __DIR__ . '/module.html';	// ggf auch automatisch
-        if (!is_file($datei)) {
-            $this->SendDebug('TileInit', 'phase=fehler grund=module-html-fehlt', 0);
-            return '<div style="padding:1rem;font-family:sans-serif;">module.html nicht gefunden.</div>';
-        }
-
-        $html = file_get_contents($datei);
-        if ($html === false) {
-            $this->SendDebug('TileInit', 'phase=fehler grund=module-html-lesefehler', 0);
-            return '<div style="padding:1rem;font-family:sans-serif;">module.html konnte nicht geladen werden.</div>';
-        }
-
+		$html = (string) file_get_contents($datei);
 		$cssDatei = __DIR__ . '/module.css';
 		$cssBlock = '';
 		if (is_file($cssDatei)) {
 			$css = file_get_contents($cssDatei);
 			if ($css !== false) {
 				$cssBlock = "<style>\n" . $css . "\n</style>";
-			} else {
-				$this->SendDebug('TileInit', 'phase=warnung grund=module-css-lesefehler', 0);
 			}
-		} else {
-			$this->SendDebug('TileInit', 'phase=warnung grund=module-css-fehlt', 0);
 		}
-	
-        try {
-            $initialDaten = $this->erstelleVisualisierungsDaten();
 
-            $this->SendDebug(
-                'TileInit',
-                sprintf(
-                    'phase=ende modus=%s datei=%s ok=%s zeilen=%d dauerMs=%d',
-                    $modus,
-                    basename($logDatei),
-                    ($initialDaten['ok'] ?? false) ? 'true' : 'false',
-                    is_array($initialDaten['zeilen'] ?? null) ? count($initialDaten['zeilen']) : 0,
-                    (int) round((microtime(true) - $start) * 1000)
-                ),
-                0
-            );
+		if ($modus === 'ultra') {
+			$this->starteUltraBuildFallsNoetig();
+			$this->aktualisiereUltraBuildStatus();
 
-			$html = str_replace('%%MODULE_CSS%%', $cssBlock, $html);
+			$status = $this->leseStatus();
 
-            return str_replace(
-                '%%INITIAL_DATA%%',
-                json_encode($initialDaten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-                $html
-            );
-        } catch (\Throwable $e) {
-            $this->SendDebug(
-                'TileInit',
-                sprintf(
-                    'phase=exception modus=%s datei=%s dauerMs=%d meldung=%s',
-                    $modus,
-                    basename($logDatei),
-                    (int) round((microtime(true) - $start) * 1000),
-                    $e->getMessage()
-                ),
-                0
-            );
-            throw $e;
-        }
-    }
+			$this->SendDebug(
+				'PagingStatus/GetVisualizationTile',
+				json_encode([
+					'seite' => (int) ($status['seite'] ?? 0),
+					'maxZeilen' => (int) ($status['maxZeilen'] ?? 0),
+					'ultraBuildLaeuft' => (bool) ($status['ultraBuildLaeuft'] ?? false),
+					'ultraIndexBereit' => (bool) ($status['ultraIndexBereit'] ?? false)
+				], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+				0
+			);
 
-    /**
-     * RequestAction
-     *
-     * Verarbeitet Aktionen aus der Visualisierung.
-     * - Reagiert auf Navigation, Filter, Einstellungen und Dateiauswahl
-     * - Aktualisiert Status, Cache und Anzeige
-     *
-     * Parameter: string $Ident, mixed $Value
-     * Rückgabewert: void
-     */
+			if ((bool) ($status['ultraBuildLaeuft'] ?? false) || !(bool) ($status['ultraIndexBereit'] ?? false)) {
+				$status = $this->setzeTabellenLadezustand(
+					true,
+					'Logdatei wird geladen …',
+					'GetVisualizationTile',
+					$status
+				);
+			}
+		}
+
+		$initialDaten = $this->erstelleVisualisierungsDaten();
+		$this->uebernehmeLadeAnzeigeInDaten($initialDaten);
+
+		$this->SendDebug(
+			'TileInit',
+			sprintf(
+				'phase=ende modus=%s datei=%s ok=%s zeilen=%d dauerMs=%d',
+				$modus,
+				basename($logDatei),
+				($initialDaten['ok'] ?? false) ? 'true' : 'false',
+				is_array($initialDaten['zeilen'] ?? null) ? count($initialDaten['zeilen']) : 0,
+				(int) round((microtime(true) - $start) * 1000)
+			),
+			0
+		);
+
+		$html = str_replace('%%MODULE_CSS%%', $cssBlock, $html);
+		return str_replace(
+			'%%INITIAL_DATA%%',
+			json_encode($initialDaten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+			$html
+		);
+	}
+
+	/**
+	 * RequestAction
+	 *
+	 * Verarbeitet Aktionen aus der Visualisierung.
+	 * - Reagiert auf Navigation, Filter, Einstellungen, Dateiauswahl und Betriebsmodus
+	 * - Steuert Trefferzählung, Filtermetadaten, Ladezustände und Cache
+	 * - Startet und verwaltet CSV-Export-Aktionen der Visualisierung
+	 *
+	 * Parameter: string $Ident, mixed $Value
+	 * Rückgabewert: void
+	 */
 	public function RequestAction(string $Ident, mixed $Value): void
 	{
 		$this->SendDebug('RequestAction', 'Ident=' . $Ident . ' Value=' . print_r($Value, true), 0);
 		try {
 			$status = $this->leseStatus();
+
 			switch ($Ident) {
 				case 'Laden':
 				case 'Aktualisieren':
@@ -350,7 +540,7 @@ class LogAnalyzer extends IPSModuleStrict
 					$status['dateiGroesseCache'] = 0;
 					$status['dateiMTimeCache'] = 0;
 					$status['zaehlSignatur'] = '';
-					$this->schreibeStatus($status);
+					$status['tabellenLadeStart'] = microtime(true);
 					$this->leereSeitenCache();
 
 					if ($this->ermittleAktivenModus() === 'ultra') {
@@ -359,20 +549,36 @@ class LogAnalyzer extends IPSModuleStrict
 						$status['ultraBuildLaeuft'] = false;
 						$status['ultraBuildDatei'] = '';
 						$status['ultraIndexBereit'] = false;
-						$this->schreibeStatus($status);
+						$status['ultraBuildStart'] = 0.0;
+						$status['ultraBuildDauerMs'] = 0;
 					}
 
 					$modusPruefung = $this->pruefeModusVerwendbarkeit();
 					if (!(bool) ($modusPruefung['ok'] ?? false)) {
-						$this->setzeTabellenLadezustand(false, '', 'RequestAction/Aktualisieren-modus-blockiert');
+						$status = $this->setzeTabellenLadezustand(false, '', 'RequestAction/Aktualisieren-modus-blockiert', $status);
 						$this->aktualisiereVisualisierung();
 						return;
 					}
 
-					$this->setzeTabellenLadezustand(true, 'Tabelle wird aktualisiert …', 'RequestAction/Aktualisieren');
+					$status = $this->setzeTabellenLadezustand(true, 'Tabelle wird aktualisiert …', 'RequestAction/Aktualisieren', $status);
 					$this->aktualisiereVisualisierungNurStatus('vor-tabellenladung-aktualisieren');
 					$this->aktualisiereVisualisierung();
+					
+					$this->SendDebug(
+						'RefreshStartStatus',
+						json_encode([
+							'seite' => (int) ($status['seite'] ?? 0),
+							'maxZeilen' => (int) ($status['maxZeilen'] ?? 0),
+							'ultraBuildLaeuft' => (bool) ($status['ultraBuildLaeuft'] ?? false),
+							'ultraIndexBereit' => (bool) ($status['ultraIndexBereit'] ?? false),
+							'tabellenLadungLaeuft' => (bool) ($status['tabellenLadungLaeuft'] ?? false),
+							'tabellenLadungText' => (string) ($status['tabellenLadungText'] ?? '')
+						], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+						0
+					);					
+					
 					return;
+
 				case 'SeiteVor':
 					$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 					$aktuelleSeite = max(0, (int) ($status['seite'] ?? 0));
@@ -385,33 +591,55 @@ class LogAnalyzer extends IPSModuleStrict
 						$status['seite'] = $aktuelleSeite + 1;
 					}
 
-					$this->schreibeStatus($status);
+					$this->SendDebug(
+						'PagingStatus/RequestAction',
+						json_encode([
+							'ident' => $Ident,
+							'seite' => (int) ($status['seite'] ?? 0),
+							'maxZeilen' => (int) ($status['maxZeilen'] ?? 0),
+							'trefferGesamt' => (int) ($status['trefferGesamt'] ?? -1)
+						], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+						0
+					);
 
 					$modusPruefung = $this->pruefeModusVerwendbarkeit();
 					if (!(bool) ($modusPruefung['ok'] ?? false)) {
-						$this->setzeTabellenLadezustand(false, '', 'RequestAction/SeiteVor-modus-blockiert');
+						$status = $this->setzeTabellenLadezustand(false, '', 'RequestAction/SeiteVor-modus-blockiert', $status);
 						$this->aktualisiereVisualisierung();
 						return;
 					}
 
-					$this->setzeTabellenLadezustand(true, 'Ältere Einträge werden geladen …', 'RequestAction/SeiteVor');
+					$status = $this->setzeTabellenLadezustand(true, 'Ältere Einträge werden geladen …', 'RequestAction/SeiteVor', $status);
 					$this->aktualisiereVisualisierungNurStatus('vor-tabellenladung-seitevor');
 					$this->aktualisiereVisualisierung();
 					return;
+
 				case 'SeiteZurueck':
 					$status['seite'] = max(0, (int) $status['seite'] - 1);
-					$this->schreibeStatus($status);
+
+					$this->SendDebug(
+						'PagingStatus/RequestAction',
+						json_encode([
+							'ident' => $Ident,
+							'seite' => (int) ($status['seite'] ?? 0),
+							'maxZeilen' => (int) ($status['maxZeilen'] ?? 0),
+							'trefferGesamt' => (int) ($status['trefferGesamt'] ?? -1)
+						], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+						0
+					);
 
 					$modusPruefung = $this->pruefeModusVerwendbarkeit();
 					if (!(bool) ($modusPruefung['ok'] ?? false)) {
-						$this->setzeTabellenLadezustand(false, '', 'RequestAction/SeiteZurueck-modus-blockiert');
+						$status = $this->setzeTabellenLadezustand(false, '', 'RequestAction/SeiteZurueck-modus-blockiert', $status);
 						$this->aktualisiereVisualisierung();
 						return;
 					}
-					$this->setzeTabellenLadezustand(true, 'Neuere Einträge werden geladen …', 'RequestAction/SeiteZurueck');
+
+					$status = $this->setzeTabellenLadezustand(true, 'Neuere Einträge werden geladen …', 'RequestAction/SeiteZurueck', $status);
 					$this->aktualisiereVisualisierungNurStatus('vor-tabellenladung-seitezurueck');
 					$this->aktualisiereVisualisierung();
 					return;
+
 				case 'FilterAnwenden':
 					$daten = $this->dekodiereJsonArray((string) $Value);
 
@@ -427,7 +655,6 @@ class LogAnalyzer extends IPSModuleStrict
 					$status['dateiMTimeCache'] = 0;
 					$status['zaehlSignatur'] = '';
 
-					$this->schreibeStatus($status);
 					$this->leereSeitenCache();
 
 					if ($this->ermittleAktivenModus() === 'standard') {
@@ -445,21 +672,24 @@ class LogAnalyzer extends IPSModuleStrict
 
 					$modusPruefung = $this->pruefeModusVerwendbarkeit();
 					if (!(bool) ($modusPruefung['ok'] ?? false)) {
-						$this->setzeTabellenLadezustand(false, '', 'RequestAction/FilterAnwenden-modus-blockiert');
+						$status = $this->setzeTabellenLadezustand(false, '', 'RequestAction/FilterAnwenden-modus-blockiert', $status);
 						$this->aktualisiereVisualisierung();
 						return;
 					}
 
-					$this->setzeTabellenLadezustand(true, 'Gefilterte Tabelle wird geladen …', 'RequestAction/FilterAnwenden');
+					$status = $this->setzeTabellenLadezustand(true, 'Gefilterte Tabelle wird geladen …', 'RequestAction/FilterAnwenden', $status);
 					$this->aktualisiereVisualisierungNurStatus('vor-tabellenladung-filteranwenden');
 					$this->aktualisiereVisualisierung();
 					return;
+
 				case 'ZaehleTreffer':
 					$this->zaehleTrefferAsynchron();
 					return;
+
 				case 'LadeFilterOptionen':
 					$this->ladeFilterMetadatenAsynchron();
 					return;
+
 				case 'LogDateiAuswaehlen':
 					$datei = trim((string) $Value);
 					$verfuegbareDateien = $this->ermittleVerfuegbareLogdateien();
@@ -469,8 +699,7 @@ class LogAnalyzer extends IPSModuleStrict
 						throw new Exception('Ungültige Logdatei ausgewählt: ' . $datei);
 					}
 
-					IPS_SetProperty($this->InstanceID, 'LogDatei', $datei);
-					IPS_ApplyChanges($this->InstanceID);
+					$this->schreibeAktiveLogDatei($datei);
 
 					$status = [
 						'seite'                    => 0,
@@ -489,11 +718,14 @@ class LogAnalyzer extends IPSModuleStrict
 						'tabellenLadungLaeuft'     => false,
 						'tabellenLadungText'       => '',
 						'letzteTabellenLadezeitMs' => 0,
+						'tabellenLadeStart'        => microtime(true),
 						'ultraBuildLaeuft'         => false,
 						'ultraBuildDatei'          => '',
-						'ultraIndexBereit'         => false
+						'ultraIndexBereit'         => false,
+						'ultraBuildStart'          => 0.0,
+						'ultraBuildDauerMs'        => 0
 					];
-					$this->schreibeStatus($status);
+					$status = $this->initialisiereCsvExportStatusFelder($status);
 
 					$this->schreibeFilterMetadaten([
 						'verfuegbareFilterTypen' => [],
@@ -503,19 +735,19 @@ class LogAnalyzer extends IPSModuleStrict
 						'dateiMTimeCache'        => 0,
 						'ladezeitMs'             => 0,
 						'laedt'                  => false,
-						'signatur' => ''
+						'signatur'               => ''
 					]);
 
 					$this->leereSeitenCache();
 
 					$modusPruefung = $this->pruefeModusVerwendbarkeit();
 					if (!(bool) ($modusPruefung['ok'] ?? false)) {
-						$this->setzeTabellenLadezustand(false, '', 'RequestAction/LogDateiAuswaehlen-modus-blockiert');
+						$status = $this->setzeTabellenLadezustand(false, '', 'RequestAction/LogDateiAuswaehlen-modus-blockiert', $status);
 						$this->aktualisiereVisualisierung();
 						return;
 					}
 
-					$this->setzeTabellenLadezustand(true, 'Logdatei wird geladen …', 'RequestAction/LogDateiAuswaehlen');
+					$status = $this->setzeTabellenLadezustand(true, 'Logdatei wird geladen …', 'RequestAction/LogDateiAuswaehlen', $status);
 					$this->aktualisiereVisualisierungNurStatus('vor-tabellenladung-logdateiwechsel');
 					$this->aktualisiereVisualisierung();
 					return;
@@ -523,16 +755,15 @@ class LogAnalyzer extends IPSModuleStrict
 				case 'SetzeMaxZeilen':
 					$status['maxZeilen'] = $this->normalisiereMaxZeilen((int) $Value);
 					$status['seite'] = 0;
-					$this->schreibeStatus($status);
 
 					$modusPruefung = $this->pruefeModusVerwendbarkeit();
 					if (!(bool) ($modusPruefung['ok'] ?? false)) {
-						$this->setzeTabellenLadezustand(false, '', 'RequestAction/SetzeMaxZeilen-modus-blockiert');
+						$status = $this->setzeTabellenLadezustand(false, '', 'RequestAction/SetzeMaxZeilen-modus-blockiert', $status);
 						$this->aktualisiereVisualisierung();
 						return;
 					}
 
-					$this->setzeTabellenLadezustand(true, 'Tabellenbereich wird neu geladen …', 'RequestAction/SetzeMaxZeilen');
+					$status = $this->setzeTabellenLadezustand(true, 'Tabellenbereich wird neu geladen …', 'RequestAction/SetzeMaxZeilen', $status);
 					$this->aktualisiereVisualisierungNurStatus('vor-tabellenladung-maxzeilen');
 					$this->aktualisiereVisualisierung();
 					return;
@@ -555,8 +786,7 @@ class LogAnalyzer extends IPSModuleStrict
 						$modus = 'standard';
 					}
 
-					IPS_SetProperty($this->InstanceID, 'Betriebsmodus', $modus);
-					IPS_ApplyChanges($this->InstanceID);
+					$this->schreibeAktivenBetriebsmodus($modus);
 
 					$status['trefferGesamt'] = -1;
 					$status['zaehlungLaeuft'] = false;
@@ -568,6 +798,7 @@ class LogAnalyzer extends IPSModuleStrict
 					$status['ultraBuildLaeuft'] = false;
 					$status['ultraBuildDatei'] = '';
 					$status['ultraIndexBereit'] = false;
+					$status = $this->initialisiereCsvExportStatusFelder($status);
 					$this->schreibeStatus($status);
 
 					$this->schreibeFilterMetadaten([
@@ -578,10 +809,27 @@ class LogAnalyzer extends IPSModuleStrict
 						'dateiMTimeCache'        => 0,
 						'ladezeitMs'             => 0,
 						'laedt'                  => false,
-						'signatur' => ''
+						'signatur'               => ''
 					]);
 
 					$this->leereSeitenCache();
+					$this->aktualisiereVisualisierung();
+					return;
+				case 'CsvExportGesamt':
+					$ergebnis = $this->starteCsvExportUltra('all');
+					$this->aktualisiereVisualisierung();
+					return;
+
+				case 'CsvExportSeite':
+					$ergebnis = $this->starteCsvExportUltra('page');
+					$this->aktualisiereVisualisierung();
+					return;
+
+				case 'CsvExportLoeschen':
+					$token = trim((string) $Value);
+					if ($token !== '') {
+						$this->loescheCsvExportDatei($token);
+					}
 					$this->aktualisiereVisualisierung();
 					return;
 			}
@@ -589,7 +837,8 @@ class LogAnalyzer extends IPSModuleStrict
 			throw new Exception('Unbekannte Aktion: ' . $Ident);
 		} catch (\Throwable $e) {
 			$this->SendDebug('RequestAction FEHLER', $e->getMessage(), 0);
-			throw $e;}
+			throw $e;
+		}
 	}
 
     /**
@@ -604,48 +853,51 @@ class LogAnalyzer extends IPSModuleStrict
      */
 	public function AktualisierenVisualisierung(): void
 	{
+		$this->orchestriereBackendProzesse();
 		$this->aktualisiereVisualisierung();
 	}
 
-    /**
-     * aktualisiereVisualisierungNurStatus
-     *
-     * Aktualisiert nur den Statusbereich der Visualisierung.
-     * - Erstellt kompakte Statusdaten für die Oberfläche
-     * - Überträgt die Daten ohne vollständigen Tabellenneuaufbau
-     *
-     * Parameter: string $quelle
-     * Rückgabewert: void
-     */
+	/**
+	 * aktualisiereVisualisierungNurStatus
+	 *
+	 * Aktualisiert nur den Statusbereich der Visualisierung.
+	 * - Erstellt kompakte Statusdaten für die Oberfläche
+	 * - Überträgt Status-, Lade- und CSV-Exportdaten ohne vollständigen Tabellenneuaufbau
+	 *
+	 * Parameter: string $quelle
+	 * Rückgabewert: void
+	 */
     private function aktualisiereVisualisierungNurStatus(string $quelle = ''): void
-    {
-        $daten = $this->erstelleVisualisierungsStatusDaten();
-        $this->uebernehmeLadeAnzeigeInDaten($daten);
+	{
+    $daten = $this->erstelleVisualisierungsStatusDaten();
+    $this->uebernehmeCsvExportInVisualisierungsDaten($daten);
+    $this->uebernehmeLadeAnzeigeInDaten($daten);
 
-        $this->SendDebug(
-            'VisualisierungStatus',
-            sprintf(
-                'quelle=%s zeilen=%d treffer=%d zaehlung=%s filterLaeuft=%s tabellenLadung=%s ladezeitMs=%d filterLadezeitMs=%d',
-                $quelle !== '' ? $quelle : '-',
-                is_array($daten['zeilen'] ?? null) ? count($daten['zeilen']) : 0,
-                (int) ($daten['trefferGesamt'] ?? -1),
-                ($daten['zaehlungLaeuft'] ?? false) ? 'true' : 'false',
-                ($daten['filterMetadatenLaeuft'] ?? false) ? 'true' : 'false',
-                ($daten['tabellenLadungLaeuft'] ?? false) ? 'true' : 'false',
-                (int) ($daten['ladezeitMs'] ?? 0),
-                (int) ($daten['filterLadezeitMs'] ?? 0)
-            ),
-            0
-        );
+    $this->SendDebug(
+        'VisualisierungStatus',
+        sprintf(
+            'quelle=%s zeilen=%d treffer=%d zaehlung=%s filterLaeuft=%s tabellenLadung=%s ladezeitMs=%d filterLadezeitMs=%d csvListe=%d',
+            $quelle !== '' ? $quelle : '-',
+            is_array($daten['zeilen'] ?? null) ? count($daten['zeilen']) : 0,
+            (int) ($daten['trefferGesamt'] ?? -1),
+            ($daten['zaehlungLaeuft'] ?? false) ? 'true' : 'false',
+            ($daten['filterMetadatenLaeuft'] ?? false) ? 'true' : 'false',
+            ($daten['tabellenLadungLaeuft'] ?? false) ? 'true' : 'false',
+            (int) ($daten['ladezeitMs'] ?? 0),
+            (int) ($daten['filterLadezeitMs'] ?? 0),
+            is_array($daten['csvExportListe'] ?? null) ? count($daten['csvExportListe']) : 0
+        ),
+        0
+    );
 
-        $this->sendeLadeAnzeigeDebug('aktualisiereVisualisierungNurStatus/' . ($quelle !== '' ? $quelle : '-'), $daten);
+    $this->sendeLadeAnzeigeDebug('aktualisiereVisualisierungNurStatus/' . ($quelle !== '' ? $quelle : '-'), $daten);
 
-        $erfolg = $this->UpdateVisualizationValue(
-            json_encode($daten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
-        );
+    $erfolg = $this->UpdateVisualizationValue(
+        json_encode($daten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
+    );
 
-        $this->SendDebug('UpdateVisualizationValue Status', $erfolg ? 'true' : 'false', 0);
-    }
+    $this->SendDebug('UpdateVisualizationValue Status', $erfolg ? 'true' : 'false', 0);
+	}
 
     /**
      * aktualisiereVisualisierung
@@ -661,33 +913,67 @@ class LogAnalyzer extends IPSModuleStrict
     {
         try {
             $start = microtime(true);
+
+            if ($this->ermittleAktivenModus() === 'ultra') {
+                $this->aktualisiereUltraBuildStatus();
+            }
+
             $daten = $this->erstelleVisualisierungsDaten();
             $dauerMs = (int) round((microtime(true) - $start) * 1000);
 
             $statusVorher = $this->leseStatus();
             $statusNachher = $statusVorher;
 
-            $statusNachher['letzteTabellenLadezeitMs'] = (int) ($daten['ladezeitMs'] ?? 0);
-
-            if ((bool) ($statusNachher['tabellenLadungLaeuft'] ?? false)) {
-                $statusNachher['tabellenLadungLaeuft'] = false;
-                $statusNachher['tabellenLadungText'] = '';
-                $this->SendDebug('Ladebalken', 'quelle=aktualisiereVisualisierung sichtbar=false text=-', 0);
+            $tabellenLadeStart = (float) ($statusNachher['tabellenLadeStart'] ?? 0);
+            if ($tabellenLadeStart > 0) {
+                $statusNachher['letzteTabellenLadezeitMs'] = (int) round((microtime(true) - $tabellenLadeStart) * 1000);
             }
+
+			$filterLaeuft = (bool) ($daten['filterMetadatenLaeuft'] ?? false);
+			$zaehlungLaeuft = (bool) ($statusNachher['zaehlungLaeuft'] ?? false);
+			$buildLaeuft = (bool) ($statusNachher['ultraBuildLaeuft'] ?? false);
+			$alleProzesseFertig = !$filterLaeuft && !$zaehlungLaeuft && !$buildLaeuft;
+
+			$this->SendDebug(
+				'VisualisierungResetEntscheidung',
+				json_encode([
+					'ok' => (bool) ($daten['ok'] ?? false),
+					'zeilenAnzahl' => is_array($daten['zeilen'] ?? null) ? count($daten['zeilen']) : 0,
+					'tabellenLadungVorher' => (bool) ($statusNachher['tabellenLadungLaeuft'] ?? false),
+					'filterLaeuft' => $filterLaeuft,
+					'zaehlungLaeuft' => $zaehlungLaeuft,
+					'buildLaeuft' => $buildLaeuft,
+					'alleProzesseFertig' => $alleProzesseFertig,
+					'ultraIndexBereit' => (bool) ($statusNachher['ultraIndexBereit'] ?? false),
+					'tabellenText' => (string) ($statusNachher['tabellenLadungText'] ?? '')
+				], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+				0
+			);
+
+			if ($alleProzesseFertig && (bool) ($statusNachher['tabellenLadungLaeuft'] ?? false)) {
+				$this->SendDebug('VisualisierungReset', 'tabellenLadung wird auf false gesetzt', 0);
+
+				$statusNachher['tabellenLadungLaeuft'] = false;
+				$statusNachher['tabellenLadungText'] = '';
+				$statusNachher['tabellenLadeStart'] = 0.0;
+			} else {
+				$this->SendDebug('VisualisierungReset', 'tabellenLadung bleibt aktiv', 0);
+			}
 
             $this->schreibeStatus($statusNachher);
 
             $daten['status'] = $statusNachher;
-            $daten['tabellenLadungLaeuft'] = false;
-            $daten['tabellenLadungText'] = '';
+            $daten['tabellenLadungLaeuft'] = (bool) ($statusNachher['tabellenLadungLaeuft'] ?? false);
+            $daten['tabellenLadungText'] = (string) ($statusNachher['tabellenLadungText'] ?? '');
             $daten['ladezeitMs'] = (int) ($statusNachher['letzteTabellenLadezeitMs'] ?? 0);
+            $daten['ultraBuildDauerMs'] = (int) ($statusNachher['ultraBuildDauerMs'] ?? 0);
 
             $this->uebernehmeLadeAnzeigeInDaten($daten);
 
             $this->SendDebug(
                 'Visualisierung',
                 sprintf(
-                    'ok=%s datei=%s seite=%d maxZeilen=%d zeilen=%d hatWeitere=%s treffer=%d zaehlung=%s filterGeladen=%s filterLaeuft=%s tabellenLadungVorher=%s tabellenLadungNachher=%s dauerMs=%d',
+                    'ok=%s datei=%s seite=%d maxZeilen=%d zeilen=%d hatWeitere=%s treffer=%d zaehlung=%s filterGeladen=%s filterLaeuft=%s tabellenLadungVorher=%s tabellenLadungNachher=%s ultraBuildLaeuft=%s ultraIndexBereit=%s ultraBuildDauerMs=%d dauerMs=%d',
                     ($daten['ok'] ?? false) ? 'true' : 'false',
                     basename((string) ($daten['logDatei'] ?? '')),
                     (int) (($daten['status']['seite'] ?? 0)),
@@ -700,38 +986,41 @@ class LogAnalyzer extends IPSModuleStrict
                     ($daten['filterMetadatenLaeuft'] ?? false) ? 'true' : 'false',
                     ($statusVorher['tabellenLadungLaeuft'] ?? false) ? 'true' : 'false',
                     ($statusNachher['tabellenLadungLaeuft'] ?? false) ? 'true' : 'false',
+                    ($statusNachher['ultraBuildLaeuft'] ?? false) ? 'true' : 'false',
+                    ($statusNachher['ultraIndexBereit'] ?? false) ? 'true' : 'false',
+                    (int) ($daten['ultraBuildDauerMs'] ?? 0),
                     $dauerMs
                 ),
                 0
             );
 
             $this->sendeLadeAnzeigeDebug('aktualisiereVisualisierung', $daten);
-
-            $erfolg = $this->UpdateVisualizationValue(
+            $this->UpdateVisualizationValue(
                 json_encode($daten, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)
             );
-            $this->SendDebug('UpdateVisualizationValue', $erfolg ? 'true' : 'false', 0);
+
+            $this->orchestriereBackendProzesse();
         } catch (\Throwable $e) {
             $this->SendDebug('Visualisierung FEHLER', $e->getMessage(), 0);
             throw $e;
         }
     }
 
-    /**
-     * erstelleVisualisierungsDaten
-     *
-     * Erstellt die vollständigen Daten für die Visualisierung.
-     * - Lädt Status, Metadaten und Logzeilen
-     * - Bereitet alle Werte für die Anzeige auf
-     *
-     * Parameter: keine
-     * Rückgabewert: array
-     */
+	/**
+	 * erstelleVisualisierungsDaten
+	 *
+	 * Erstellt die vollständigen Daten für die Visualisierung.
+	 * - Lädt Status, Filtermetadaten, Logzeilen und verfügbare Logdateien
+	 * - Bereitet alle Werte einschließlich Betriebsmodus, Ladezuständen und CSV-Exportdaten für die Anzeige auf
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: array
+	 */
 	private function erstelleVisualisierungsDaten(): array
 	{
 		$status = $this->leseStatus();
 		$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktiveLogDatei();
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$betriebsmodus = $this->ermittleAktivenModus();
 
@@ -772,7 +1061,8 @@ class LogAnalyzer extends IPSModuleStrict
 			'aktuelleLogDatei'       => $logDatei,
 			'tabellenLadungLaeuft'   => (bool) ($status['tabellenLadungLaeuft'] ?? false),
 			'tabellenLadungText'     => (string) ($status['tabellenLadungText'] ?? ''),
-			'betriebsmodus'          => $betriebsmodus
+			'betriebsmodus'          => $betriebsmodus,
+			'ultraBuildDauerMs'      => (int) ($status['ultraBuildDauerMs'] ?? 0)
 		];
 
 		$modusPruefung = $this->pruefeModusVerwendbarkeit();
@@ -825,24 +1115,26 @@ class LogAnalyzer extends IPSModuleStrict
 			0
 		);
 
+		$this->uebernehmeCsvExportInVisualisierungsDaten($ergebnis);
+
 		return $ergebnis;
 	}
 
-    /**
-     * erstelleVisualisierungsStatusDaten
-     *
-     * Erstellt die Statusdaten für die Visualisierung.
-     * - Lädt Status, Filtermetadaten und Cacheinformationen
-     * - Gibt nur die aktuell nötigen Anzeigewerte zurück
-     *
-     * Parameter: keine
-     * Rückgabewert: array
-     */
+	/**
+	 * erstelleVisualisierungsStatusDaten
+	 *
+	 * Erstellt die Statusdaten für die Visualisierung.
+	 * - Lädt Status, Filtermetadaten, verfügbare Logdateien und Cacheinformationen
+	 * - Gibt nur die aktuell nötigen Anzeigewerte einschließlich Betriebsmodus zurück
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: array
+	 */
 	private function erstelleVisualisierungsStatusDaten(): array
 	{
 		$status = $this->leseStatus();
 		$filterMetadaten = $this->leseFilterMetadatenFuerAnzeige();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktiveLogDatei();
 		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
 		$betriebsmodus = $this->ermittleAktivenModus();
 
@@ -870,7 +1162,8 @@ class LogAnalyzer extends IPSModuleStrict
 			'aktuelleLogDatei'       => $logDatei,
 			'tabellenLadungLaeuft'   => (bool) ($status['tabellenLadungLaeuft'] ?? false),
 			'tabellenLadungText'     => (string) ($status['tabellenLadungText'] ?? ''),
-			'betriebsmodus'          => $betriebsmodus
+			'betriebsmodus'          => $betriebsmodus,
+			'ultraBuildDauerMs'      => (int) ($status['ultraBuildDauerMs'] ?? 0)
 		];
 
 		$modusPruefung = $this->pruefeModusVerwendbarkeit();
@@ -952,7 +1245,7 @@ class LogAnalyzer extends IPSModuleStrict
 				'LadeFilterOptionen',
 				sprintf(
 					'modus-blockiert datei=%s meldung=%s',
-					basename($this->ReadPropertyString('LogDatei')),
+					basename($this->leseAktiveLogDatei()),
 					(string) ($modusPruefung['fehlermeldung'] ?? '')
 				),
 				0
@@ -972,7 +1265,7 @@ class LogAnalyzer extends IPSModuleStrict
 			return;
 		}
 
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktiveLogDatei();
 		$status = $this->leseStatus();
 		$meta = $this->leseFilterMetadatenRoh();
 
@@ -1142,6 +1435,7 @@ class LogAnalyzer extends IPSModuleStrict
 
 		if (
 			$this->ermittleAktivenModus() !== 'standard' &&
+			$this->ermittleAktivenModus() !== 'ultra' &&
 			!$this->hatAktiveFilter($basisStatus) &&
 			(int) ($ermittelt['gesamtZeilen'] ?? -1) >= 0
 		) {
@@ -1153,8 +1447,6 @@ class LogAnalyzer extends IPSModuleStrict
 				$neuerStatus['dateiMTimeCache'] = $dateiMTime;
 				$neuerStatus['zaehlSignatur'] = $this->ermittleZaehlsignatur($neuerStatus);
 
-				// ganz wichtig: laufende Zählung hier nicht künstlich wieder auf true zurückschreiben
-				// wir übernehmen nur den aktuellen Wert aus dem frisch gelesenen Status
 				$this->schreibeStatus($neuerStatus);
 			}
 		}
@@ -1200,7 +1492,7 @@ class LogAnalyzer extends IPSModuleStrict
 				'ZaehleTreffer',
 				sprintf(
 					'modus-blockiert datei=%s meldung=%s',
-					basename($this->ReadPropertyString('LogDatei')),
+					basename($this->leseAktiveLogDatei()),
 					(string) ($modusPruefung['fehlermeldung'] ?? '')
 				),
 				0
@@ -1221,7 +1513,7 @@ class LogAnalyzer extends IPSModuleStrict
 		}
 
 		$status = $this->leseStatus();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktiveLogDatei();
 
 		$this->SendDebug(
 			'ZaehleTrefferStart',
@@ -1301,7 +1593,15 @@ class LogAnalyzer extends IPSModuleStrict
 			return;
 		}
 
-		if (!(bool) $this->hatAktiveFilter($status)) {
+		// WICHTIG:
+		// Den Shortcut über Filtermetadaten NICHT im Ultra-Modus verwenden.
+		// Im Debug war sichtbar, dass Ultra hier gesamt=0 liefern kann und damit
+		// trefferGesamt fälschlich überschreibt, obwohl page --include-total
+		// korrekt eine echte Gesamtmenge geliefert hat.
+		if (
+			$this->ermittleAktivenModus() !== 'ultra' &&
+			!(bool) $this->hatAktiveFilter($status)
+		) {
 			$metaAnzeige = $this->leseFilterMetadatenFuerAnzeige();
 			$gesamtMeta = (int) ($metaAnzeige['gesamtZeilen'] ?? -1);
 
@@ -1478,6 +1778,24 @@ class LogAnalyzer extends IPSModuleStrict
 			$status,
 			$this->leseFilterMetadatenRoh()
 		);
+		
+		// Fix Tabelle neu laden nach Refreh
+		$vollerRefreshNoetig =
+			$this->ermittleAktivenModus() === 'ultra' &&
+			(bool) ($status['tabellenLadungLaeuft'] ?? false) &&
+			!(bool) ($status['zaehlungLaeuft'] ?? false) &&
+			!(bool) ($status['ultraBuildLaeuft'] ?? false) &&
+			(bool) ($status['ultraIndexBereit'] ?? false);
+
+		if ($vollerRefreshNoetig) {
+			$this->SendDebug(
+				'ZaehleTrefferRefresh',
+				'Ultra: voller Refresh nach Trefferzählung, da Tabellenladung noch aktiv ist.',
+				0
+			);
+			$this->aktualisiereVisualisierung();
+			return;
+		}
 
 		$this->aktualisiereVisualisierungNurStatus('zaehleTreffer-ende');
 	}
@@ -1564,7 +1882,7 @@ class LogAnalyzer extends IPSModuleStrict
 			array_pop($zeilen);
 		}
 
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktiveLogDatei();
 		$dateiGroesse = is_file($logDatei) ? (int) filesize($logDatei) : 0;
 		$dateiMTime = is_file($logDatei) ? (int) filemtime($logDatei) : 0;
 		$listenSignatur = $this->ermittleListenCacheSignatur($status);
@@ -1752,7 +2070,7 @@ class LogAnalyzer extends IPSModuleStrict
 	private function ermittleListenCacheSignatur(array $status): string
 	{
 		return md5(json_encode([
-			'logDatei'        => $this->ReadPropertyString('LogDatei'),
+			'logDatei'        => $this->leseAktiveLogDatei(),
 			'seite'           => max(0, (int) ($status['seite'] ?? 0)),
 			'maxZeilen'       => $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50)),
 			'filterTypen'     => $this->normalisiereFilterTypen($status['filterTypen'] ?? []),
@@ -1870,9 +2188,23 @@ class LogAnalyzer extends IPSModuleStrict
 			'tabellenLadungLaeuft'     => (bool) ($daten['tabellenLadungLaeuft'] ?? false),
 			'tabellenLadungText'       => trim((string) ($daten['tabellenLadungText'] ?? '')),
 			'letzteTabellenLadezeitMs' => max(0, (int) ($daten['letzteTabellenLadezeitMs'] ?? 0)),
+			'tabellenLadeStart'        => (float) ($daten['tabellenLadeStart'] ?? 0),
 			'ultraBuildLaeuft'         => (bool) ($daten['ultraBuildLaeuft'] ?? false),
 			'ultraBuildDatei'          => trim((string) ($daten['ultraBuildDatei'] ?? '')),
-			'ultraIndexBereit'         => (bool) ($daten['ultraIndexBereit'] ?? false)
+			'ultraIndexBereit'         => (bool) ($daten['ultraIndexBereit'] ?? false),
+			'ultraBuildStart'          => (float) ($daten['ultraBuildStart'] ?? 0),
+			'ultraBuildDauerMs'        => max(0, (int) ($daten['ultraBuildDauerMs'] ?? 0)),
+			'csvExportLaeuft'            => (bool) ($daten['csvExportLaeuft'] ?? false),
+			'csvExportBereit'            => (bool) ($daten['csvExportBereit'] ?? false),
+			'csvExportFehlermeldung'     => trim((string) ($daten['csvExportFehlermeldung'] ?? '')),
+			'csvExportToken'             => trim((string) ($daten['csvExportToken'] ?? '')),
+			'csvExportScope'             => trim((string) ($daten['csvExportScope'] ?? 'all')),
+			'csvExportDatei'             => trim((string) ($daten['csvExportDatei'] ?? '')),
+			'csvExportDateiname'         => trim((string) ($daten['csvExportDateiname'] ?? '')),
+			'csvExportDateigroesseBytes' => max(0, (int) ($daten['csvExportDateigroesseBytes'] ?? 0)),
+			'csvExportExportierteZeilen' => (int) ($daten['csvExportExportierteZeilen'] ?? -1),
+			'csvExportLaeuftAbAm'        => (int) ($daten['csvExportLaeuftAbAm'] ?? 0),
+			'csvExportDownloadUrl'       => trim((string) ($daten['csvExportDownloadUrl'] ?? ''))
 		];
 	}
 
@@ -1907,9 +2239,23 @@ class LogAnalyzer extends IPSModuleStrict
 				'tabellenLadungLaeuft'     => (bool) ($status['tabellenLadungLaeuft'] ?? false),
 				'tabellenLadungText'       => trim((string) ($status['tabellenLadungText'] ?? '')),
 				'letzteTabellenLadezeitMs' => max(0, (int) ($status['letzteTabellenLadezeitMs'] ?? 0)),
+				'tabellenLadeStart'        => (float) ($status['tabellenLadeStart'] ?? 0),
 				'ultraBuildLaeuft'         => (bool) ($status['ultraBuildLaeuft'] ?? false),
 				'ultraBuildDatei'          => trim((string) ($status['ultraBuildDatei'] ?? '')),
-				'ultraIndexBereit'         => (bool) ($status['ultraIndexBereit'] ?? false)
+				'ultraIndexBereit'         => (bool) ($status['ultraIndexBereit'] ?? false),
+				'ultraBuildStart'          => (float) ($status['ultraBuildStart'] ?? 0),
+				'ultraBuildDauerMs'        => max(0, (int) ($status['ultraBuildDauerMs'] ?? 0)),
+				'csvExportLaeuft'            => (bool) ($daten['csvExportLaeuft'] ?? false),
+				'csvExportBereit'            => (bool) ($daten['csvExportBereit'] ?? false),
+				'csvExportFehlermeldung'     => trim((string) ($daten['csvExportFehlermeldung'] ?? '')),
+				'csvExportToken'             => trim((string) ($daten['csvExportToken'] ?? '')),
+				'csvExportScope'             => trim((string) ($daten['csvExportScope'] ?? 'all')),
+				'csvExportDatei'             => trim((string) ($daten['csvExportDatei'] ?? '')),
+				'csvExportDateiname'         => trim((string) ($daten['csvExportDateiname'] ?? '')),
+				'csvExportDateigroesseBytes' => max(0, (int) ($daten['csvExportDateigroesseBytes'] ?? 0)),
+				'csvExportExportierteZeilen' => (int) ($daten['csvExportExportierteZeilen'] ?? -1),
+				'csvExportLaeuftAbAm'        => (int) ($daten['csvExportLaeuftAbAm'] ?? 0),
+				'csvExportDownloadUrl'       => trim((string) ($daten['csvExportDownloadUrl'] ?? ''))
 			], JSON_THROW_ON_ERROR)
 		);
 	}
@@ -1930,74 +2276,29 @@ class LogAnalyzer extends IPSModuleStrict
 
 		$tabellenLadung = (bool) ($daten['tabellenLadungLaeuft'] ?? $status['tabellenLadungLaeuft'] ?? false);
 		$tabellenText = trim((string) ($daten['tabellenLadungText'] ?? $status['tabellenLadungText'] ?? ''));
-
 		$zaehlungLaeuft = (bool) ($daten['zaehlungLaeuft'] ?? false);
 		$filterLaeuft = (bool) ($daten['filterMetadatenLaeuft'] ?? false);
-
 		$betriebsmodus = (string) ($daten['betriebsmodus'] ?? $this->ermittleAktivenModus());
 		$ultraBuildLaeuft = (bool) ($status['ultraBuildLaeuft'] ?? false);
 		$ultraIndexBereit = (bool) ($status['ultraIndexBereit'] ?? false);
 
-		$logDatei = (string) ($daten['logDatei'] ?? $this->ReadPropertyString('LogDatei'));
-		$dateiGroesse = 0;
-		if ($logDatei !== '' && @is_file($logDatei)) {
-			$groesse = @filesize($logDatei);
-			if ($groesse !== false) {
-				$dateiGroesse = (int) $groesse;
-			}
-		}
-
-		$istGross = $dateiGroesse >= 200 * 1024 * 1024;
-		$istSehrGross = $dateiGroesse >= 500 * 1024 * 1024;
-		$filterLadezeitMs = (int) ($daten['filterLadezeitMs'] ?? 0);
-		$filterLangsam = $filterLadezeitMs >= 5000;
-
-		$anzeigeLadebalken = $tabellenLadung;
-		$anzeigeLadebalkenText = $anzeigeLadebalken
-			? ($tabellenText !== '' ? $tabellenText : 'Tabelle wird geladen …')
-			: '';
-
-		$anzeigeHintergrundlaufend = false;
-		$anzeigeHintergrundText = '';
-
-		if ($betriebsmodus === 'ultra' && $ultraBuildLaeuft && !$ultraIndexBereit) {
-			$anzeigeHintergrundlaufend = true;
-			$anzeigeHintergrundText = 'Ultra-Index wird aufgebaut …';
-		} elseif ($zaehlungLaeuft && $filterLaeuft) {
-			$anzeigeHintergrundlaufend = true;
-
-			if ($betriebsmodus === 'ultra' && !$ultraIndexBereit) {
-				$anzeigeHintergrundText = 'Treffer und Filteroptionen werden vorbereitet …';
-			} elseif ($istSehrGross) {
-				$anzeigeHintergrundText = 'Treffer und Filteroptionen werden aus großer Logdatei ermittelt …';
-			} else {
-				$anzeigeHintergrundText = 'Treffer und Filteroptionen werden ermittelt …';
-			}
-		} elseif ($zaehlungLaeuft) {
-			$anzeigeHintergrundlaufend = true;
-
-			if ($istSehrGross) {
-				$anzeigeHintergrundText = 'Treffer werden in großer Logdatei ermittelt …';
-			} else {
-				$anzeigeHintergrundText = 'Treffer werden ermittelt …';
-			}
+		$text = '';
+		if ($tabellenLadung) {
+			$text = $tabellenText !== '' ? $tabellenText : 'Tabelle wird geladen …';
+		} elseif ($ultraBuildLaeuft && !$ultraIndexBereit) {
+			$text = 'Ultra-Index wird aufgebaut …';
 		} elseif ($filterLaeuft) {
-			$anzeigeHintergrundlaufend = true;
-
-			if ($betriebsmodus === 'ultra' && !$ultraIndexBereit) {
-				$anzeigeHintergrundText = 'Filteroptionen werden vorbereitet …';
-			} elseif ($istSehrGross || $filterLangsam) {
-				$anzeigeHintergrundText = 'Filteroptionen werden aus großer Logdatei ermittelt …';
-			} else {
-				$anzeigeHintergrundText = 'Filteroptionen werden geladen …';
-			}
+			$text = 'Filteroptionen werden geladen …';
+		} elseif ($zaehlungLaeuft) {
+			$text = 'Treffer werden ermittelt …';
 		}
 
+		$aktiv = $text !== '';
 		return [
-			'anzeigeLadebalken'         => $anzeigeLadebalken,
-			'anzeigeLadebalkenText'     => $anzeigeLadebalkenText,
-			'anzeigeHintergrundlaufend' => $anzeigeHintergrundlaufend,
-			'anzeigeHintergrundText'    => $anzeigeHintergrundText
+			'anzeigeLadebalken'         => $aktiv,
+			'anzeigeLadebalkenText'     => $text,
+			'anzeigeHintergrundlaufend' => false,
+			'anzeigeHintergrundText'    => ''
 		];
 	}
 
@@ -2057,42 +2358,132 @@ class LogAnalyzer extends IPSModuleStrict
 	/**
 	 * setzeTabellenLadezustand
 	 *
-	 * Setzt den Ladezustand der Tabellenanzeige.
-	 * - Aktualisiert Sichtbarkeit und Text des Ladehinweises
-	 * - Speichert den Zustand im Modulstatus
+	 * Setzt den Ladezustand der Tabelle im Modulstatus.
+	 * - Aktualisiert Sichtbarkeit, Text und Startzeit des Ladebalkens
+	 * - Schreibt den geänderten Status zurück und gibt ihn erneut aus
 	 *
-	 * Parameter: bool $laeuft, string $text, string $quelle
-	 * Rückgabewert: void
+	 * Parameter: bool $laeuft, string $text, string $quelle, ?array $status = null
+	 * Rückgabewert: array
 	 */
-	private function setzeTabellenLadezustand(bool $laeuft, string $text = '', string $quelle = ''): void
+	private function setzeTabellenLadezustand(bool $laeuft, string $text = '', string $quelle = '', ?array $basisStatus = null): array
 	{
-		$status = $this->leseStatus();
+		$status = is_array($basisStatus) ? $basisStatus : $this->leseStatus();
+
+		$this->SendDebug(
+			'PagingStatus/setzeTabellenLadezustand',
+			json_encode([
+				'quelle' => $quelle,
+				'basisStatusUebergeben' => is_array($basisStatus),
+				'seiteVorSchreiben' => (int) ($status['seite'] ?? 0),
+				'maxZeilenVorSchreiben' => (int) ($status['maxZeilen'] ?? 0),
+				'tabellenLadungLaeuftAlt' => (bool) ($status['tabellenLadungLaeuft'] ?? false),
+				'tabellenLadungTextAlt' => (string) ($status['tabellenLadungText'] ?? '')
+			], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+			0
+		);
 
 		$alterStatus = (bool) ($status['tabellenLadungLaeuft'] ?? false);
 		$alterText = trim((string) ($status['tabellenLadungText'] ?? ''));
-
-		$neuerText = $laeuft ? trim($text) : '';
-
-		if ($alterStatus === $laeuft && $alterText === $neuerText) {
-			return;
-		}
+		$neuerText = trim($text);
 
 		$status['tabellenLadungLaeuft'] = $laeuft;
-		$status['tabellenLadungText'] = $neuerText;
+		$status['tabellenLadungText'] = $laeuft ? $neuerText : '';
+
+		if ($laeuft) {
+			$status['tabellenLadeStart'] = microtime(true);
+		} else {
+			$status['tabellenLadeStart'] = 0.0;
+		}
+
 		$this->schreibeStatus($status);
 
 		$this->SendDebug(
 			'Ladebalken',
 			sprintf(
-				'quelle=%s sichtbar=%s text=%s vorherSichtbar=%s vorherText=%s',
+				'quelle=%s sichtbar=%s text=%s vorherSichtbar=%s vorherText=%s seite=%d',
 				$quelle !== '' ? $quelle : '-',
 				$laeuft ? 'true' : 'false',
 				$laeuft ? $neuerText : '-',
 				$alterStatus ? 'true' : 'false',
-				$alterText !== '' ? $alterText : '-'
+				$alterText !== '' ? $alterText : '-',
+				(int) ($status['seite'] ?? 0)
 			),
 			0
 		);
+
+		return $status;
+	}
+
+	/**
+	 * orchestriereBackendProzesse
+	 *
+	 * Orchestriert die Hintergrundprozesse des Moduls.
+	 * - Bereinigt abgelaufene CSV-Exporte
+	 * - Steuert Ultra-Build, Filtermetadaten und Trefferzählung abhängig vom aktuellen Zustand
+	 * - Setzt bei Bedarf Ladezustände für die Visualisierung
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: void
+	 */
+	private function orchestriereBackendProzesse(): void
+	{
+		$this->bereinigeAbgelaufeneCsvExporte();
+		
+		$modusPruefung = $this->pruefeModusVerwendbarkeit();
+		if (!(bool) ($modusPruefung['ok'] ?? false)) {
+			return;
+		}
+
+		$logDatei = $this->leseAktiveLogDatei();
+		if (!is_file($logDatei)) {
+			return;
+		}
+
+		$modus = $this->ermittleAktivenModus();
+		$status = $this->leseStatus();
+		$metaAnzeige = $this->leseFilterMetadatenFuerAnzeige();
+
+		if ($modus === 'ultra') {
+			$this->aktualisiereUltraBuildStatus();
+			$status = $this->leseStatus();
+
+			$this->SendDebug(
+				'OrchestrierungUltra',
+				json_encode([
+					'ultraBuildLaeuft' => (bool) ($status['ultraBuildLaeuft'] ?? false),
+					'ultraIndexBereit' => (bool) ($status['ultraIndexBereit'] ?? false),
+					'tabellenLadungLaeuft' => (bool) ($status['tabellenLadungLaeuft'] ?? false),
+					'trefferGesamt' => (int) ($status['trefferGesamt'] ?? -1),
+					'zaehlungLaeuft' => (bool) ($status['zaehlungLaeuft'] ?? false),
+					'metaGeladen' => (bool) ($metaAnzeige['geladen'] ?? false),
+					'metaLaedt' => (bool) ($metaAnzeige['laedt'] ?? false)
+				], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+				0
+			);
+
+			if (!(bool) ($status['ultraIndexBereit'] ?? false)) {
+				$this->SendDebug('OrchestrierungUltra', 'frueher return wegen ultraIndexBereit=false', 0);
+
+				$this->starteUltraBuildFallsNoetig();
+				if (!(bool) ($status['tabellenLadungLaeuft'] ?? false)) {
+					$this->setzeTabellenLadezustand(true, 'Ultra-Index wird aufgebaut …', 'orchestriereBackendProzesse/build');
+				}
+				return;
+			}
+
+			$this->SendDebug('OrchestrierungUltra', 'weiter mit Filtermetadaten/Trefferzaehlung', 0);
+		}
+
+		if (!(bool) ($metaAnzeige['geladen'] ?? false) && !(bool) ($metaAnzeige['laedt'] ?? false)) {
+			$this->ladeFilterMetadatenAsynchron();
+			return;
+		}
+
+		$status = $this->leseStatus();
+		if ((int) ($status['trefferGesamt'] ?? -1) < 0 && !(bool) ($status['zaehlungLaeuft'] ?? false)) {
+			$this->zaehleTrefferAsynchron();
+			return;
+		}
 	}
 
     /**
@@ -2136,7 +2527,7 @@ class LogAnalyzer extends IPSModuleStrict
 	private function leseFilterMetadatenFuerAnzeige(): array
 	{
 		$roh = $this->leseFilterMetadatenRoh();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktiveLogDatei();
 		$status = $this->leseStatus();
 
 		if (!is_file($logDatei)) {
@@ -2215,23 +2606,19 @@ class LogAnalyzer extends IPSModuleStrict
 			trim((string) ($status['textFilter'] ?? '')) !== '';
 	}
 
-    /**
-     * ermittleAktivenModus
-     *
-     * Ermittelt den aktuell konfigurierten Betriebsmodus.
-     * - Liest die Moduleigenschaft Betriebsmodus aus
-     * - Gibt nur gültige Moduswerte zurück
-     *
-     * Parameter: keine
-     * Rückgabewert: string
-     */
+	/**
+	 * ermittleAktivenModus
+	 *
+	 * Ermittelt den aktuell verwendeten Betriebsmodus.
+	 * - Liest den bereits normalisierten aktiven Betriebsmodus aus dem Attribut
+	 * - Liefert nur gültige Moduswerte zurück
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: string
+	 */
 	private function ermittleAktivenModus(): string
 	{
-		$modus = strtolower(trim($this->ReadPropertyString('Betriebsmodus')));
-
-		return in_array($modus, ['standard', 'system', 'ultra'], true)
-			? $modus
-			: 'standard';
+		return $this->leseAktivenBetriebsmodus();
 	}
 
     /**
@@ -2252,7 +2639,7 @@ class LogAnalyzer extends IPSModuleStrict
 			return $this->pruefeUltraProgrammVerwendbarkeit();
 		}
 
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktiveLogDatei();
 
 		if (!is_file($logDatei)) {
 			return [
@@ -2317,7 +2704,7 @@ class LogAnalyzer extends IPSModuleStrict
 		if ($modus !== 'standard') {
 			return md5(json_encode([
 				'modus'   => $modus,
-				'logDatei'=> $this->ReadPropertyString('LogDatei')
+				'logDatei'=> $this->leseAktiveLogDatei()
 			], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 		}
 */
@@ -2326,7 +2713,7 @@ class LogAnalyzer extends IPSModuleStrict
 		if ($modus === 'ultra') {
 			return md5(json_encode([
 				'modus'            => $modus,
-				'logDatei'         => $this->ReadPropertyString('LogDatei'),
+				'logDatei'         => $this->leseAktiveLogDatei(),
 				'filterTypen'      => array_values((array) ($status['filterTypen'] ?? [])),
 				'senderFilter'     => array_values((array) ($status['senderFilter'] ?? [])),
 				'objektIdFilter'   => trim((string) ($status['objektIdFilter'] ?? '')),
@@ -2337,7 +2724,7 @@ class LogAnalyzer extends IPSModuleStrict
 		if ($modus !== 'standard') {
 			return md5(json_encode([
 				'modus'   => $modus,
-				'logDatei'=> $this->ReadPropertyString('LogDatei')
+				'logDatei'=> $this->leseAktiveLogDatei()
 			], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 		}
 		// mit Schnittmengen Ende
@@ -2345,7 +2732,7 @@ class LogAnalyzer extends IPSModuleStrict
 
 		return md5(json_encode([
 			'modus'          => $modus,
-			'logDatei'       => $this->ReadPropertyString('LogDatei'),
+			'logDatei'       => $this->leseAktiveLogDatei(),
 			'objektIdFilter' => $this->normalisiereObjektIdFilterString((string) ($status['objektIdFilter'] ?? '')),
 			'textFilter'     => trim((string) ($status['textFilter'] ?? '')),
 			'filterTypen'    => $this->normalisiereFilterTypen($status['filterTypen'] ?? []),
@@ -2802,10 +3189,20 @@ class LogAnalyzer extends IPSModuleStrict
 		return $anzeige;
 	}
 
+	/**
+	 * sendeDebugLadezustandSnapshot
+	 *
+	 * Erstellt einen Debug-Snapshot des aktuellen Ladezustands.
+	 * - Protokolliert Status-, Filter- und Ladeinformationen
+	 * - Dient zur Analyse paralleler Backend-Prozesse und Ladeanzeigen
+	 *
+	 * Parameter: string $quelle, array $status, array $filterMetadaten
+	 * Rückgabewert: void
+	 */
 	private function sendeDebugLadezustandSnapshot(string $quelle, array $status, array $meta = []): void
 	{
 		$modus = $this->ermittleAktivenModus();
-		$logDatei = $this->ReadPropertyString('LogDatei');
+		$logDatei = $this->leseAktiveLogDatei();
 
 		$this->SendDebug(
 			'LadezustandSnapshot',
@@ -2829,6 +3226,94 @@ class LogAnalyzer extends IPSModuleStrict
 			),
 			0
 		);
+	}
+
+	/**
+	 * ProcessHookData
+	 *
+	 * Verarbeitet HTTP-Hook-Anfragen der Visualisierung.
+	 * - Liefert angeforderte Daten oder Dateien aus dem Modul
+	 * - Wird für Download- und Exportfunktionen (z. B. CSV) verwendet
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: void
+	 */
+	public function ProcessHookData(): void
+	{
+		$uri = $_SERVER['REQUEST_URI'] ?? '';
+		$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+		if ($method !== 'GET') {
+			http_response_code(405);
+			echo 'Method Not Allowed';
+			return;
+		}
+
+		$pfad = parse_url($uri, PHP_URL_PATH);
+		$hookBasis = '/hook/loganalyzer/' . $this->InstanceID;
+
+		if ($pfad !== $hookBasis . '/download') {
+			http_response_code(404);
+			echo 'Not Found';
+			return;
+		}
+
+		$token = isset($_GET['token']) ? trim((string) $_GET['token']) : '';
+		if ($token === '') {
+			http_response_code(400);
+			echo 'Fehlender Token';
+			return;
+		}
+
+		// optionaler Sicherheitscheck
+		if (!preg_match('/^[a-f0-9]{32}$/', $token)) {
+			http_response_code(400);
+			echo 'Ungültiger Token';
+			return;
+		}
+
+		$export = $this->holeCsvExportPerToken($token);
+		if (!(bool) ($export['ok'] ?? false)) {
+			http_response_code(404);
+			echo 'Export nicht gefunden';
+			return;
+		}
+
+		$datei = (string) ($export['datei'] ?? '');
+		$dateiname = (string) ($export['dateiname'] ?? basename($datei));
+
+		if ($datei === '' || !is_file($datei) || !is_readable($datei)) {
+			http_response_code(404);
+			echo 'Datei nicht verfügbar';
+			return;
+		}
+
+		if (ob_get_length()) {
+			ob_end_clean();
+		}
+
+		header('Content-Type: text/csv; charset=UTF-8');
+		header('Content-Disposition: attachment; filename="' . str_replace('"', '', $dateiname) . '"');
+		header('Content-Length: ' . filesize($datei));
+		header('Cache-Control: private, max-age=0, must-revalidate');
+		header('Pragma: public');
+
+		$handle = fopen($datei, 'rb');
+		if ($handle === false) {
+			http_response_code(500);
+			echo 'Datei konnte nicht geöffnet werden';
+			return;
+		}
+
+		while (!feof($handle)) {
+			echo fread($handle, 1024 * 1024);
+			flush();
+		}
+
+		fclose($handle);
+
+		$this->aktualisiereCsvExportLetztenDownload($token);
+		exit;
 	}
 
 }

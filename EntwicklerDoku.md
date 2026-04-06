@@ -9,11 +9,13 @@ Die Architektur trennt strikt zwischen:
 - Cache-Schicht
 - Datenzugriffsschicht
 - Betriebssystem-spezifischer Verarbeitung
+- Ultra CLI Verarbeitung
 
 Ziel ist es:
 - Vollscans zu vermeiden
 - Parsing zu minimieren
 - OS-Tools zu nutzen
+- Ultra CLI zu integrieren
 - UI reaktiv zu halten
 
 ---
@@ -29,10 +31,10 @@ Cache-Schicht (Attribute)
         ↓
 Moduswahl
         ↓
-Standard-Modus        System-Modus
-(PHP)               (OS optimiert)
-                        ↓
-                Windows        Linux/Unix
+Standard-Modus   System-Modus   Ultra-Modus
+(PHP)            (OS optimiert) (CLI basiert)
+                     ↓               ↓
+              Windows / Linux     Ultra CLI Tool
 ```
 
 ---
@@ -86,6 +88,24 @@ Zweck:
 
 ---
 
+## 4. CSVExportCache
+
+Speichert:
+- Token
+- Dateipfad
+- Ablaufzeit (TTL)
+- Scope (Seite / Gesamt)
+- Logdatei
+- Filter-Signatur
+- Zeitstempel
+
+Zweck:
+- temporäre Exportverwaltung
+- sichere Downloadlinks
+- automatische Bereinigung
+
+---
+
 # Betriebsmodi
 
 ## Standard-Modus
@@ -95,29 +115,6 @@ Zweck:
 - alles in PHP
 - exakt
 - langsam bei großen Dateien
-
-### Ablauf
-
-```
-fopen()
-  ↓
-fgets()
-  ↓
-parseLogZeile()
-  ↓
-Filterprüfung
-  ↓
-Array sammeln
-  ↓
-array_reverse()
-  ↓
-Pagination
-```
-
-### Performance
-- O(n)
-- kompletter RAM / CPU Scan
-- geeignet für kleine Logs
 
 ---
 
@@ -133,232 +130,102 @@ System
 
 ---
 
-# System-Modus – Windows
+# Ultra-Modus
 
-## Ohne Filter
+Der Ultra-Modus nutzt ein externes CLI Tool zur Loganalyse.
 
-Blockweises Rückwärtslesen:
+## Architektur
 
 ```
-Dateiende
-   ↑
-fseek()
-   ↑
-fread()
-   ↑
-Buffer
-   ↑
-Zeilen extrahieren
+UI
+ ↓
+RequestAction
+ ↓
+Status
+ ↓
+UltraTrait
+ ↓
+CLI Aufruf
+ ↓
+JSON Ergebnis
+ ↓
+Cache / UI
 ```
 
-Nur benötigte Zeilen werden gelesen.
+## Eigenschaften
 
-### Vorteil
-- kein Vollscan
-- konstante Laufzeit
-- ideal für große Dateien
+- kein Parsing in PHP
+- CLI übernimmt Filterung
+- CLI übernimmt Pagination
+- CLI übernimmt Zählung
+- CLI übernimmt CSV Export
+- höchste Performance
 
 ---
 
-## Mit Filter
+# CSV Export Architektur
 
 ```
-foreach fgets()
-    ↓
-extrahiereLogFelder()
-    ↓
-Filter prüfen
-    ↓
-Queue (begrenzte Größe)
-```
-
-Queue verhindert RAM-Wachstum.
-
----
-
-## Treffer zählen (Windows)
-
-```
-foreach Zeile
-    ↓
-Filter prüfen
-    ↓
-Counter++
-```
-
-Immer Vollscan.
-
----
-
-## Metadaten (Windows)
-
-```
-foreach Zeile
-    ↓
-Typ sammeln
-Sender sammeln
-Zeilen zählen
+UI Button
+ ↓
+RequestAction
+ ↓
+UltraTrait::starteCsvExport
+ ↓
+CLI export-csv
+ ↓
+Temp Datei
+ ↓
+Token generieren
+ ↓
+ExportCache speichern
+ ↓
+Download Link anzeigen
 ```
 
 ---
 
-# System-Modus – Linux / Unix
-
-Hier wird alles an Systemtools delegiert.
-
-## Verwendete Tools
-
-- tail
-- head
-- grep
-- awk
-- wc
-- sift (optional)
-- tac (optional)
-
----
-
-## Ohne Filter
-
-Pipeline:
+# Download Hook Architektur
 
 ```
-tail -n TAKE
-    ↓
-head -n HEAD
-    ↓
-reverse
-```
-
-Nur Dateiende wird gelesen.
-
----
-
-## Mit Filter
-
-Pipeline:
-
-```
-grep / sift
-    ↓
-grep Objekt-ID
-    ↓
-grep Sender
-    ↓
-grep Text
-    ↓
-awk Feldfilter
-    ↓
-tail
-    ↓
-head
-    ↓
-reverse
-```
-
-Filter laufen im Kernel / OS.
-
----
-
-## Treffer zählen (Linux)
-
-Ohne Filter:
-```
-awk zählt Zeilen
-```
-
-Mit Filter:
-```
-Pipeline → wc -l
+Browser
+ ↓
+/hook/loganalyzer/.../download?token
+ ↓
+ProcessHookData()
+ ↓
+Token prüfen
+ ↓
+ExportCache lookup
+ ↓
+Datei streamen
+ ↓
+optional löschen
 ```
 
 ---
 
-## Filtermetadaten (Linux)
+# Sicherheitskonzept
 
-```
-awk
- ├─ Typen sammeln
- ├─ Sender sammeln
- └─ Gesamt zählen
-```
-
-Nur ein Durchlauf.
-
----
-
-# Reverse-Logik (tac)
-
-Der Code prüft:
-
-```
-command -v tac
-```
-
-## Wenn vorhanden
-
-```
-reverse = tac
-```
-
-## Wenn nicht vorhanden
-
-AWK Fallback:
-
-```
-lines[NR]=$0
-END reverse print
-```
-
----
-
-# Plattformverhalten
-
-| Plattform | tac |
-|-----------|-----|
-Linux | meist vorhanden |
-macOS | meist nicht vorhanden |
-Docker | abhängig vom Image |
-BusyBox | meist nicht vorhanden |
-
-Es wird **nicht OS-basiert**, sondern **tool-basiert** entschieden.
+- Token-basierter Download
+- Token Formatprüfung
+- keine Dateipfade aus URL
+- kein CLI Aufruf über Hook
+- TTL Ablauf
+- kein Directory Zugriff
+- kein Code Execution möglich
+- Zugriff nur auf registrierte Exporte
 
 ---
 
 # Performance-Vergleich
 
-| Modus | Lesen | Filter | Zählen | Performance |
-|------|------|-------|--------|-------------|
-Standard | PHP Vollscan | PHP | PHP | langsam |
-System Windows | Rückwärts | PHP | PHP | mittel |
-System Linux | tail | grep/awk | wc | sehr schnell |
-
----
-
-# Wann was geladen wird
-
-## Logdatei wechseln
-- Status reset
-- Filtermetadaten neu
-- SeitenCache leer
-- Tabelle neu laden
-
-## Filter ändern
-- Status ändern
-- SeitenCache leer
-- Tabelle neu laden
-- Filtermetadaten bleiben (System-Modus)
-
-## Seite wechseln
-- nur Tabellenladung
-
-## maxZeilen ändern
-- nur Tabellenladung
-
-## Aktualisieren
-- kompletter Reset
-- Filtermetadaten neu
-- Tabelle neu
+| Modus | Lesen | Filter | Zählen | Export |
+|------|------|-------|--------|--------|
+Standard | PHP Vollscan | PHP | PHP | nein |
+System Windows | Rückwärts | PHP | PHP | nein |
+System Linux | tail | grep/awk | wc | nein |
+Ultra | CLI | CLI | CLI | ja |
 
 ---
 
@@ -377,3 +244,8 @@ System Linux | tail | grep/awk | wc | sehr schnell |
 8. Linux nutzt Kernel-Pipeline
 9. Windows nutzt optimiertes fread
 10. Standard nur für kleine Dateien
+11. Ultra CLI für sehr große Dateien
+12. CSV Export außerhalb PHP
+13. Streaming Download statt Memory
+14. Token-basierte Exportverwaltung
+15. Attribut-basierter Runtime Zustand
