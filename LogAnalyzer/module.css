@@ -9,7 +9,7 @@
     --toolbar-col-logdatei: 270px;
     --toolbar-col-zeilen: 90px;
     --toolbar-col-objektid: 160px;
-    --toolbar-col-meldungstyp: 120px;
+    --toolbar-col-meldungstyp: 160px;
     --toolbar-col-sender: 210px;
     --toolbar-col-text: 240px;
 }
@@ -38,7 +38,7 @@ body.theme-dark {
     --border-soft: rgba(255, 255, 255, 0.10);
     --text: #f5f5f5;
     --muted: #b8b8b8;
-    --row-even: rgba(255, 255, 255, 0.03);
+    --row-even: rgba(255, 255, 255, 0.07);
     --row-border: rgba(255, 255, 255, 0.08);
     --table-line: rgba(255, 255, 255, 0.10);
     --table-line-strong: rgba(255, 255, 255, 0.14);

@@ -208,6 +208,97 @@
         }
     };
 	
+    const debugFlowState = {
+        actionSeq: 0,
+        messageSeq: 0,
+        lastActionAt: 0,
+        lastAction: null,
+        lastMessageSignature: '',
+        actionHistory: []
+    };
+
+    function buildUiStateSnapshot(data) {
+        const source = data || currentData || {};
+        const status = source.status || {};
+        return {
+            mode: String(source.betriebsmodus || ''),
+            logDatei: String(source.logDatei || source.aktuelleLogDatei || ''),
+            seite: Number(status.seite || 0),
+            maxZeilen: Number(source.maxZeilen || status.maxZeilen || 0),
+            filterTypen: Array.isArray(status.filterTypen) ? [...status.filterTypen] : [],
+            senderFilter: Array.isArray(status.senderFilter) ? [...status.senderFilter] : [],
+            objektIdFilter: String(status.objektIdFilter || ''),
+            textFilter: String(status.textFilter || ''),
+            tableLoading: !!(source.tabellenLadungLaeuft || status.tabellenLadungLaeuft),
+            countLoading: !!source.zaehlungLaeuft,
+            filterLoading: !!source.filterMetadatenLaeuft,
+            hits: Number(source.trefferGesamt ?? -1),
+            rows: Array.isArray(source.zeilen) ? source.zeilen.length : 0
+        };
+    }
+
+    function truncateDebugValue(value, maxLength = 240) {
+        let serialized = '';
+        if (typeof value === 'string') {
+            serialized = value;
+        } else {
+            try {
+                serialized = JSON.stringify(value);
+            } catch (error) {
+                serialized = String(value);
+            }
+        }
+
+        if (serialized.length <= maxLength) {
+            return serialized;
+        }
+
+        return serialized.slice(0, maxLength) + '…';
+    }
+
+    function debugRequestAction(ident, value, source) {
+        const seq = ++debugFlowState.actionSeq;
+        const now = Date.now();
+        const snapshot = buildUiStateSnapshot(currentData);
+        const entry = {
+            seq,
+            at: new Date(now).toISOString(),
+            source: String(source || '-'),
+            ident: String(ident || ''),
+            valuePreview: truncateDebugValue(value),
+            snapshot
+        };
+
+        debugFlowState.lastActionAt = now;
+        debugFlowState.lastAction = entry;
+        debugFlowState.actionHistory.push(entry);
+        if (debugFlowState.actionHistory.length > 30) {
+            debugFlowState.actionHistory.shift();
+        }
+
+        console.debug('[LogAnalyzer] requestAction-dispatch', entry);
+        requestAction(ident, value);
+    }
+
+    function buildMessageSignature(data) {
+        const source = data || {};
+        const status = source.status || {};
+        return [
+            String(source.debugUpdateKind || ''),
+            String(source.debugUpdateSource || ''),
+            String(source.debugActionId || ''),
+            String(source.betriebsmodus || ''),
+            String(source.logDatei || source.aktuelleLogDatei || ''),
+            Number(status.seite || 0),
+            Number(source.maxZeilen || status.maxZeilen || 0),
+            Number(source.trefferGesamt ?? -1),
+            Array.isArray(source.zeilen) ? source.zeilen.length : 0,
+            !!source.tabellenLadungLaeuft,
+            !!source.zaehlungLaeuft,
+            !!source.filterMetadatenLaeuft
+        ].join('||');
+    }
+
     // Zuordnung zwischen versteckten nativen Selects und sichtbaren Custom-Selects
     const CUSTOM_SELECT_MAPPINGS = [
         { selectId: 'logDateiSelect', customId: 'logDateiCustom' },
@@ -248,30 +339,35 @@
     }
 
     // Befüllt ein Multi-Select mit verfügbaren Werten und setzt aktive Auswahl
-    function populateMultiSelect(optionsId, values, selectedValues) {
-        const container = document.getElementById(optionsId);
-        const allValues = uniqueValues([...(Array.isArray(values) ? values : []), ...(Array.isArray(selectedValues) ? selectedValues : [])]);
+function populateMultiSelect(optionsId, values, selectedValues, counts = {}) {
+    const container = document.getElementById(optionsId);
+    const allValues = uniqueValues([...(Array.isArray(values) ? values : []), ...(Array.isArray(selectedValues) ? selectedValues : [])]);
 
-        container.innerHTML = '';
+    container.innerHTML = '';
 
-        allValues.forEach((value) => {
-            const label = document.createElement('label');
-            label.className = 'multi-select-option';
+    allValues.forEach((value) => {
+        const label = document.createElement('label');
+        label.className = 'multi-select-option';
 
-            const input = document.createElement('input');
-            input.type = 'checkbox';
-            input.value = value;
-            input.checked = Array.isArray(selectedValues) && selectedValues.includes(value);
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.value = value;
+        input.checked = Array.isArray(selectedValues) && selectedValues.includes(value);
 
-            input.addEventListener('change', () => {
-                updateMultiSelectButtonText(optionsId);
-            });
-
-            label.appendChild(input);
-            label.appendChild(document.createTextNode(' ' + value));
-            container.appendChild(label);
+        input.addEventListener('change', () => {
+            updateMultiSelectButtonText(optionsId);
         });
-    }
+
+        const count = Number(counts && Object.prototype.hasOwnProperty.call(counts, value) ? counts[value] : NaN);
+        const displayText = Number.isFinite(count) && count >= 0
+            ? (value + ' [' + count.toLocaleString('de-DE') + ']')
+            : value;
+
+        label.appendChild(input);
+        label.appendChild(document.createTextNode(' ' + displayText));
+        container.appendChild(label);
+    });
+}
 
     // Aktualisiert den Button-Text eines Multi-Selects anhand der Auswahl
     function updateMultiSelectButtonText(optionsId) {
@@ -436,20 +532,66 @@
 				parsed = JSON.parse(data);
 			}
 
+			const merged = {
+				...(currentData || {}),
+				...(parsed || {})
+			};
+
+			const filterMetadatenSindGeladen = parsed?.filterMetadatenGeladen === true;
+
+			if (!filterMetadatenSindGeladen) {
+				merged.verfuegbareFilterTypen = Array.isArray(currentData?.verfuegbareFilterTypen)
+					? currentData.verfuegbareFilterTypen
+					: [];
+				merged.verfuegbareSender = Array.isArray(currentData?.verfuegbareSender)
+					? currentData.verfuegbareSender
+					: [];
+
+				if (currentData?.filterTypZaehler && typeof currentData.filterTypZaehler === 'object') {
+					merged.filterTypZaehler = currentData.filterTypZaehler;
+				}
+
+				if (currentData?.senderZaehler && typeof currentData.senderZaehler === 'object') {
+					merged.senderZaehler = currentData.senderZaehler;
+				}
+			}
+
+			const messageSeq = ++debugFlowState.messageSeq;
+			const receivedAt = Date.now();
+			const messageSignature = buildMessageSignature(merged);
+			const sinceLastActionMs = debugFlowState.lastActionAt > 0 ? (receivedAt - debugFlowState.lastActionAt) : -1;
+			const duplicateSignature = debugFlowState.lastMessageSignature === messageSignature;
+			debugFlowState.lastMessageSignature = messageSignature;
+
 			console.debug('[LogAnalyzer] handleMessage', {
+				messageSeq,
+				receivedAt: new Date(receivedAt).toISOString(),
+				sinceLastActionMs,
+				duplicateSignature,
 				rawType: typeof data,
 				parsedOk: !!parsed,
-				mode: parsed?.betriebsmodus || '',
-				logDatei: parsed?.logDatei || '',
-				hits: parsed?.trefferGesamt,
-				tableLoading: !!parsed?.tabellenLadungLaeuft,
-				countLoading: !!parsed?.zaehlungLaeuft,
-				filterLoading: !!parsed?.filterMetadatenLaeuft,
-				rows: Array.isArray(parsed?.zeilen) ? parsed.zeilen.length : 0
+				debugActionId: merged?.debugActionId ?? null,
+				debugUpdateSeq: merged?.debugUpdateSeq ?? null,
+				debugUpdateKind: merged?.debugUpdateKind || '',
+				debugUpdateSource: merged?.debugUpdateSource || '',
+				lastAction: debugFlowState.lastAction ? {
+					seq: debugFlowState.lastAction.seq,
+					ident: debugFlowState.lastAction.ident,
+					source: debugFlowState.lastAction.source
+				} : null,
+				mode: merged?.betriebsmodus || '',
+				logDatei: merged?.logDatei || '',
+				hits: merged?.trefferGesamt,
+				tableLoading: !!merged?.tabellenLadungLaeuft,
+				countLoading: !!merged?.zaehlungLaeuft,
+				filterLoading: !!merged?.filterMetadatenLaeuft,
+				filterLoaded: !!merged?.filterMetadatenGeladen,
+				rows: Array.isArray(merged?.zeilen) ? merged.zeilen.length : 0,
+				messageSignature
 			});
 
-			debugActivityState(parsed, 'handleMessage-before-render');
-			render(parsed);
+			debugActivityState(merged, 'handleMessage-before-render');
+			render(merged);
 		} catch (e) {
 			console.error('Fehler in handleMessage', e, data);
 			const msg = document.getElementById('message');
@@ -497,7 +639,7 @@
 		const liste = Array.isArray(data?.csvExportListe) ? data.csvExportListe : [];
 
 		if (data?.csvExportLaeuft) {
-			meldungen.push('<div><strong>CSV Export wird erstellt …</strong></div>');
+			meldungen.push('<div><strong>CSV-Export läuft …</strong></div>');
 		}
 
 		if (data?.csvExportFehlermeldung) {
@@ -546,203 +688,213 @@
 	}
 
 	// Rendert die komplette Oberfläche anhand der aktuellen Datenstruktur
-    function render(data) {
-        currentData = data || {};
+function render(data) {
+    currentData = data || {};
 
-        const status = currentData.status || {
-            seite: 0,
-            maxZeilen: 50,
-            theme: 'dark',
-            kompakt: false,
-            filterTypen: [],
-            objektIdFilter: '',
-            senderFilter: [],
-            textFilter: '',
-            tabellenLadungLaeuft: false,
-            tabellenLadungText: ''
-        };
+    const status = currentData.status || {
+        seite: 0,
+        maxZeilen: 50,
+        theme: 'dark',
+        kompakt: false,
+        filterTypen: [],
+        objektIdFilter: '',
+        senderFilter: [],
+        textFilter: '',
+        tabellenLadungLaeuft: false,
+        tabellenLadungText: ''
+    };
 
-        applyViewSettings(status);
+    applyViewSettings(status);
 
-        const logDateiSelect = document.getElementById('logDateiSelect');
-        const verfuegbareLogdateien = Array.isArray(currentData.verfuegbareLogdateien) ? currentData.verfuegbareLogdateien : [];
-        const aktuelleLogDatei = currentData.aktuelleLogDatei || currentData.logDatei || '';
+    const logDateiSelect = document.getElementById('logDateiSelect');
+    const verfuegbareLogdateien = Array.isArray(currentData.verfuegbareLogdateien) ? currentData.verfuegbareLogdateien : [];
+    const aktuelleLogDatei = currentData.aktuelleLogDatei || currentData.logDatei || '';
 
-        logDateiSelect.innerHTML = '';
-        verfuegbareLogdateien.forEach((eintrag) => {
-            const option = document.createElement('option');
-            option.value = eintrag.pfad || '';
-            option.textContent = eintrag.anzeige || eintrag.dateiname || eintrag.pfad || '';
-            option.selected = option.value === aktuelleLogDatei;
-            logDateiSelect.appendChild(option);
-        });
+    logDateiSelect.innerHTML = '';
+    verfuegbareLogdateien.forEach((eintrag) => {
+        const option = document.createElement('option');
+        option.value = eintrag.pfad || '';
+        option.textContent = eintrag.anzeige || eintrag.dateiname || eintrag.pfad || '';
+        option.selected = option.value === aktuelleLogDatei;
+        logDateiSelect.appendChild(option);
+    });
 
-        const maxZeilenSelect = document.getElementById('maxZeilenSelect');
-        const aktuelleMaxZeilen = Number(currentData.maxZeilen || status.maxZeilen || 50);
-        maxZeilenSelect.value = String(aktuelleMaxZeilen);
+    const maxZeilenSelect = document.getElementById('maxZeilenSelect');
+    const aktuelleMaxZeilen = Number(currentData.maxZeilen || status.maxZeilen || 50);
+    maxZeilenSelect.value = String(aktuelleMaxZeilen);
 
-        const verfuegbareTypen = uniqueValues(currentData.verfuegbareFilterTypen || []);
-        const verfuegbareSender = uniqueValues(currentData.verfuegbareSender || []);
-        const aktiveTypen = uniqueValues(status.filterTypen || []);
-        const aktiveSender = uniqueValues(status.senderFilter || []);
+    const verfuegbareTypen = uniqueValues(currentData.verfuegbareFilterTypen || []);
+    const verfuegbareSender = uniqueValues(currentData.verfuegbareSender || []);
+    const aktiveTypen = uniqueValues(status.filterTypen || []);
+    const aktiveSender = uniqueValues(status.senderFilter || []);
+    const filterTypZaehler = (currentData.filterTypZaehler && typeof currentData.filterTypZaehler === 'object') ? currentData.filterTypZaehler : {};
+    const senderZaehler = (currentData.senderZaehler && typeof currentData.senderZaehler === 'object') ? currentData.senderZaehler : {};
 
-        populateMultiSelect('filterTypOptions', verfuegbareTypen, aktiveTypen);
-        populateMultiSelect('senderOptions', verfuegbareSender, aktiveSender);
-        updateMultiSelectButtonText('filterTypOptions');
-        updateMultiSelectButtonText('senderOptions');
+    populateMultiSelect('filterTypOptions', verfuegbareTypen, aktiveTypen, filterTypZaehler);
+    populateMultiSelect('senderOptions', verfuegbareSender, aktiveSender, senderZaehler);
+    updateMultiSelectButtonText('filterTypOptions');
+    updateMultiSelectButtonText('senderOptions');
 
-        document.getElementById('textFilter').value = status.textFilter ?? '';
-        document.getElementById('objektIdFilter').value = status.objektIdFilter ?? '';
+    document.getElementById('textFilter').value = status.textFilter ?? '';
+    document.getElementById('objektIdFilter').value = status.objektIdFilter ?? '';
 
-        document.getElementById('metaDatei').textContent = 'Datei: ' + (currentData.logDatei || '-');
-        document.getElementById('metaGroesse').textContent = 'Größe: ' + (currentData.dateiGroesse || '-');
-        document.getElementById('metaSeite').textContent = 'Seite: ' + ((Number(status.seite || 0)) + 1);
-        document.getElementById('metaStand').textContent = 'Stand: ' + (currentData.zeitstempel || '-');
-        document.getElementById('metaLadezeit').textContent = 'Ladezeit Tabelle: ' + ((currentData.ladezeitMs ?? 0)) + ' ms';
-        document.getElementById('metaFilterLadezeit').textContent = 'Ladezeit Filter: ' + ((currentData.filterLadezeitMs ?? 0) > 0 ? (currentData.filterLadezeitMs + ' ms') : '-');
-        const istUltra = String(currentData.betriebsmodus || '') === 'ultra';
-        const buildDauerMs = Number(currentData.ultraBuildDauerMs ?? status.ultraBuildDauerMs ?? 0);
-        document.getElementById('metaBuildLadezeit').textContent = istUltra && buildDauerMs > 0 ? ('Ladezeit Build: ' + buildDauerMs + ' ms') : 'Ladezeit Build: -';
+    document.getElementById('metaDatei').textContent = 'Datei: ' + (currentData.logDatei || '-');
+    document.getElementById('metaGroesse').textContent = 'Größe: ' + (currentData.dateiGroesse || '-');
+    document.getElementById('metaSeite').textContent = 'Seite: ' + ((Number(status.seite || 0)) + 1);
+    document.getElementById('metaStand').textContent = 'Stand: ' + (currentData.zeitstempel || '-');
+    document.getElementById('metaLadezeit').textContent = 'Ladezeit Tabelle: ' + ((currentData.ladezeitMs ?? 0)) + ' ms';
+    document.getElementById('metaFilterLadezeit').textContent = 'Ladezeit Filter: ' + ((currentData.filterLadezeitMs ?? 0) > 0 ? (currentData.filterLadezeitMs + ' ms') : '-');
+    const istUltra = String(currentData.betriebsmodus || '') === 'ultra';
+    const buildDauerMs = Number(currentData.ultraBuildDauerMs ?? status.ultraBuildDauerMs ?? 0);
+    document.getElementById('metaBuildLadezeit').textContent = istUltra && buildDauerMs > 0 ? ('Ladezeit Build: ' + buildDauerMs + ' ms') : 'Ladezeit Build: -';
 
-        document.getElementById('betriebsmodusSelect').value = currentData.betriebsmodus || 'standard';
-        syncAllCustomSelects();
+    document.getElementById('betriebsmodusSelect').value = currentData.betriebsmodus || 'standard';
+    syncAllCustomSelects();
 
-        const metaTreffer = document.getElementById('metaTreffer');
-        if (currentData.zaehlungLaeuft) {
-            metaTreffer.textContent = 'Treffer: wird ermittelt …';
-        } else if (typeof currentData.trefferGesamt === 'number' && currentData.trefferGesamt >= 0) {
-            metaTreffer.textContent =
-                'Bereich: ' + formatInteger(currentData.bereichVon || 0) + '–' + formatInteger(currentData.bereichBis || 0) +
-                ' von ' + formatInteger(currentData.trefferGesamt);
-        } else {
-            metaTreffer.textContent = 'Treffer: -';
-        }
-
-        const statusActivity = document.getElementById('statusActivity');
-        const statusActivityTrack = statusActivity.querySelector('.status-activity-track');
-        const statusActivityText = document.getElementById('statusActivityText');
-
-        const fallbackLaedtTabelle = Boolean(currentData.tabellenLadungLaeuft || status.tabellenLadungLaeuft);
-        const fallbackTabellenText = String(currentData.tabellenLadungText || status.tabellenLadungText || '').trim();
-        const fallbackLaedtTreffer = Boolean(currentData.zaehlungLaeuft);
-        const fallbackLaedtFilter = Boolean(currentData.filterMetadatenLaeuft);
-
-        const ladebalkenAktiv =
-            typeof currentData.anzeigeLadebalken === 'boolean'
-                ? currentData.anzeigeLadebalken
-                : fallbackLaedtTabelle;
-
-        const ladebalkenText =
-            typeof currentData.anzeigeLadebalkenText === 'string' && currentData.anzeigeLadebalkenText.trim() !== ''
-                ? currentData.anzeigeLadebalkenText.trim()
-                : (fallbackTabellenText || 'Tabelle wird geladen …');
-
-        const hintergrundAktiv = false;
-        const hintergrundText = '';
-
-        if (ladebalkenAktiv) {
-            statusActivity.classList.add('active');
-            statusActivityText.textContent = ladebalkenText;
-            if (statusActivityTrack) {
-                statusActivityTrack.style.display = '';
-            }
-        } else {
-            statusActivity.classList.remove('active');
-            statusActivityText.textContent = '';
-            if (statusActivityTrack) {
-                statusActivityTrack.style.display = 'none';
-            }
-        }
-
-        const msg = document.getElementById('message');
-        if (currentData.ok === false && currentData.fehlermeldung) {
-            msg.style.display = 'block';
-            msg.textContent = currentData.fehlermeldung;
-        } else {
-            msg.style.display = 'none';
-            msg.textContent = '';
-        }
-
-		const btnCsvExportGesamt = document.getElementById('btnCsvExportGesamt');
-		const btnCsvExportSeite = document.getElementById('btnCsvExportSeite');
-		const csvExportLaeuft = !!currentData.csvExportLaeuft;
-
-		if (btnCsvExportGesamt) {
-			btnCsvExportGesamt.style.display = istUltra ? '' : 'none';
-			btnCsvExportGesamt.disabled = !istUltra || csvExportLaeuft;
-		}
-		if (btnCsvExportSeite) {
-			btnCsvExportSeite.style.display = istUltra ? '' : 'none';
-			btnCsvExportSeite.disabled = !istUltra || csvExportLaeuft;
-		}
-
-		renderCsvExportListe(currentData);
-
-        const tbody = document.getElementById('tbody');
-        const rows = Array.isArray(currentData.zeilen) ? currentData.zeilen : [];
-
-        console.debug('[LogAnalyzer] render-table-state', {
-            ladebalkenAktiv,
-            ladebalkenText,
-            hintergrundAktiv,
-            hintergrundText,
-            rowsLength: rows.length,
-            trefferGesamt: currentData.trefferGesamt
-        });
-
-        if (ladebalkenAktiv && rows.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="empty">Lade Daten …</td></tr>';
-            return;
-        }
-
-        if (!ladebalkenAktiv && rows.length === 0 && hintergrundAktiv) {
-            tbody.innerHTML = '<tr><td colspan="5" class="empty">Status wird aktualisiert …</td></tr>';
-            return;
-        }
-
-        tbody.innerHTML = '';
-
-        if (rows.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="5" class="empty">Keine passenden Logzeilen gefunden.</td></tr>';
-        } else {
-            rows.forEach((row) => {
-                const tr = document.createElement('tr');
-                tr.innerHTML =
-                    '<td class="col-zeit">' + escapeHtml(row.zeitstempel || '') + '</td>' +
-                    '<td class="col-objektid">' + escapeHtml(row.objektId || '') + '</td>' +
-                    '<td class="col-typ">' + escapeHtml(row.typ || '') + '</td>' +
-                    '<td class="col-sender">' + escapeHtml(row.sender || '') + '</td>' +
-                    '<td>' + escapeHtml(row.meldung || '') + '</td>';
-
-                const objektIdCell = tr.querySelector('.col-objektid');
-                if (objektIdCell) {
-                    objektIdCell.style.cursor = 'pointer';
-                    objektIdCell.title = 'Doppelklick übernimmt die ObjektID in den Filter';
-
-                    objektIdCell.addEventListener('dblclick', () => {
-                        uebernehmeObjektIdInFilter(row.objektId || '');
-                    });
-                }
-
-                tbody.appendChild(tr);
-            });
-        }
-
-        const aktuelleSeite = Number(status.seite || 0);
-        const trefferGesamt = Number(currentData.trefferGesamt ?? -1);
-        const maxZeilen = Number(currentData.maxZeilen || 0);
-
-        document.getElementById('btnZurueck').disabled = aktuelleSeite <= 0;
-
-        if (trefferGesamt >= 0 && maxZeilen > 0) {
-            const maxSeite = Math.max(0, Math.ceil(trefferGesamt / maxZeilen) - 1);
-            document.getElementById('btnVor').disabled = aktuelleSeite >= maxSeite;
-        } else {
-            document.getElementById('btnVor').disabled = !currentData.hatWeitere;
-        }
-
-
+    const metaTreffer = document.getElementById('metaTreffer');
+    if (currentData.zaehlungLaeuft) {
+        metaTreffer.textContent = 'Treffer: wird ermittelt …';
+    } else if (typeof currentData.trefferGesamt === 'number' && currentData.trefferGesamt >= 0) {
+        metaTreffer.textContent =
+            'Bereich: ' + formatInteger(currentData.bereichVon || 0) + '–' + formatInteger(currentData.bereichBis || 0) +
+            ' von ' + formatInteger(currentData.trefferGesamt);
+    } else {
+        metaTreffer.textContent = 'Treffer: -';
     }
+
+    const statusActivity = document.getElementById('statusActivity');
+    const statusActivityTrack = statusActivity.querySelector('.status-activity-track');
+    const statusActivityText = document.getElementById('statusActivityText');
+
+    const fallbackLaedtTabelle = Boolean(currentData.tabellenLadungLaeuft || status.tabellenLadungLaeuft);
+    const fallbackTabellenText = String(currentData.tabellenLadungText || status.tabellenLadungText || '').trim();
+    const fallbackLaedtTreffer = Boolean(currentData.zaehlungLaeuft);
+    const fallbackLaedtFilter = Boolean(currentData.filterMetadatenLaeuft);
+
+    const ladebalkenAktiv =
+        typeof currentData.anzeigeLadebalken === 'boolean'
+            ? currentData.anzeigeLadebalken
+            : fallbackLaedtTabelle;
+
+    const ladebalkenText =
+        typeof currentData.anzeigeLadebalkenText === 'string' && currentData.anzeigeLadebalkenText.trim() !== ''
+            ? currentData.anzeigeLadebalkenText.trim()
+            : (fallbackTabellenText || 'Tabelle wird geladen …');
+
+    const hintergrundAktiv = Boolean(currentData.anzeigeHintergrundlaufend);
+    const hintergrundText = String(currentData.anzeigeHintergrundText || '').trim();
+    const ladeentscheidung = String(currentData.anzeigeLadeentscheidung || '').trim();
+
+    console.debug('[LogAnalyzer] render-activity-display', {
+        ladebalkenAktiv,
+        ladebalkenText,
+        hintergrundAktiv,
+        hintergrundText,
+        ladeentscheidung
+    });
+
+    if (ladebalkenAktiv || hintergrundAktiv) {
+        statusActivity.classList.add('active');
+        statusActivityText.textContent = ladebalkenAktiv ? ladebalkenText : hintergrundText;
+        if (statusActivityTrack) {
+            statusActivityTrack.style.display = ladebalkenAktiv ? '' : 'none';
+        }
+    } else {
+        statusActivity.classList.remove('active');
+        statusActivityText.textContent = '';
+        if (statusActivityTrack) {
+            statusActivityTrack.style.display = 'none';
+        }
+    }
+
+    const msg = document.getElementById('message');
+    if (currentData.ok === false && currentData.fehlermeldung) {
+        msg.style.display = 'block';
+        msg.textContent = currentData.fehlermeldung;
+    } else {
+        msg.style.display = 'none';
+        msg.textContent = '';
+    }
+
+    const btnCsvExportGesamt = document.getElementById('btnCsvExportGesamt');
+    const btnCsvExportSeite = document.getElementById('btnCsvExportSeite');
+    const csvExportLaeuft = !!currentData.csvExportLaeuft;
+
+    if (btnCsvExportGesamt) {
+        btnCsvExportGesamt.style.display = istUltra ? '' : 'none';
+        btnCsvExportGesamt.disabled = !istUltra || csvExportLaeuft;
+    }
+    if (btnCsvExportSeite) {
+        btnCsvExportSeite.style.display = istUltra ? '' : 'none';
+        btnCsvExportSeite.disabled = !istUltra || csvExportLaeuft;
+    }
+
+    renderCsvExportListe(currentData);
+
+    const tbody = document.getElementById('tbody');
+    const rows = Array.isArray(currentData.zeilen) ? currentData.zeilen : [];
+
+    console.debug('[LogAnalyzer] render-table-state', {
+        ladebalkenAktiv,
+        ladebalkenText,
+        hintergrundAktiv,
+        hintergrundText,
+        ladeentscheidung,
+        rowsLength: rows.length,
+        trefferGesamt: currentData.trefferGesamt
+    });
+
+    if (ladebalkenAktiv && rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">Lade Daten …</td></tr>';
+        return;
+    }
+
+    if (!ladebalkenAktiv && rows.length === 0 && hintergrundAktiv) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">Status wird aktualisiert …</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = '';
+
+    if (rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">Keine passenden Logzeilen gefunden.</td></tr>';
+    } else {
+        rows.forEach((row) => {
+            const tr = document.createElement('tr');
+            tr.innerHTML =
+                '<td class="col-zeit">' + escapeHtml(row.zeitstempel || '') + '</td>' +
+                '<td class="col-objektid">' + escapeHtml(row.objektId || '') + '</td>' +
+                '<td class="col-typ">' + escapeHtml(row.typ || '') + '</td>' +
+                '<td class="col-sender">' + escapeHtml(row.sender || '') + '</td>' +
+                '<td>' + escapeHtml(row.meldung || '') + '</td>';
+
+            const objektIdCell = tr.querySelector('.col-objektid');
+            if (objektIdCell) {
+                objektIdCell.style.cursor = 'pointer';
+                objektIdCell.title = 'Doppelklick übernimmt die ObjektID in den Filter';
+
+                objektIdCell.addEventListener('dblclick', () => {
+                    uebernehmeObjektIdInFilter(row.objektId || '');
+                });
+            }
+
+            tbody.appendChild(tr);
+        });
+    }
+
+    const aktuelleSeite = Number(status.seite || 0);
+    const trefferGesamt = Number(currentData.trefferGesamt ?? -1);
+    const maxZeilen = Number(currentData.maxZeilen || 0);
+
+    document.getElementById('btnZurueck').disabled = aktuelleSeite <= 0;
+
+    if (trefferGesamt >= 0 && maxZeilen > 0) {
+        const maxSeite = Math.max(0, Math.ceil(trefferGesamt / maxZeilen) - 1);
+        document.getElementById('btnVor').disabled = aktuelleSeite >= maxSeite;
+    } else {
+        document.getElementById('btnVor').disabled = !currentData.hatWeitere;
+    }
+}
 
 	// Erstellt eine Signatur zur Erkennung identischer asynchroner Requests
     function buildAsyncSignature(data, kind) {
@@ -856,55 +1008,55 @@
 
     // Wendet die aktuellen Filter an
     document.getElementById('btnAnwenden').addEventListener('click', () => {
-        requestAction('FilterAnwenden', JSON.stringify(collectFilterData()));
+        debugRequestAction('FilterAnwenden', JSON.stringify(collectFilterData()), 'btnAnwenden');
     });
 
     // Lädt die aktuelle Ansicht neu
     document.getElementById('btnReload').addEventListener('click', () => {
-        requestAction('Aktualisieren', '');
+        debugRequestAction('Aktualisieren', '', 'btnReload');
     });
 
     // Wechselt zur älteren Seite
     document.getElementById('btnVor').addEventListener('click', () => {
-        requestAction('SeiteVor', '');
+        debugRequestAction('SeiteVor', '', 'btnVor');
     });
 
     // Wechselt zur neueren Seite
     document.getElementById('btnZurueck').addEventListener('click', () => {
-        requestAction('SeiteZurueck', '');
+        debugRequestAction('SeiteZurueck', '', 'btnZurueck');
     });
 
     // Reagiert auf eine neue Logdatei-Auswahl
     document.getElementById('logDateiSelect').addEventListener('change', (event) => {
-        requestAction('LogDateiAuswaehlen', event.target.value);
+        debugRequestAction('LogDateiAuswaehlen', event.target.value, 'logDateiSelect');
     });
 
     // Reagiert auf eine neue Seitengröße
     document.getElementById('maxZeilenSelect').addEventListener('change', (event) => {
-        requestAction('SetzeMaxZeilen', Number(event.target.value));
+        debugRequestAction('SetzeMaxZeilen', Number(event.target.value), 'maxZeilenSelect');
     });
 
     // Reagiert auf einen Theme-Wechsel
     document.getElementById('themeSelect').addEventListener('change', (event) => {
-        requestAction('SetzeTheme', event.target.value);
+        debugRequestAction('SetzeTheme', event.target.value, 'themeSelect');
     });
 
     // Reagiert auf Umschaltung Standard/Kompakt
     document.getElementById('kompaktSelect').addEventListener('change', (event) => {
-        requestAction('SetzeKompakt', event.target.value === '1');
+        debugRequestAction('SetzeKompakt', event.target.value === '1', 'kompaktSelect');
     });
 
     // Reagiert auf einen Wechsel des Betriebsmodus
     document.getElementById('betriebsmodusSelect').addEventListener('change', (event) => {
-        requestAction('SetzeBetriebsmodus', event.target.value);
+        debugRequestAction('SetzeBetriebsmodus', event.target.value, 'betriebsmodusSelect');
     });
 	
 	document.getElementById('btnCsvExportGesamt').addEventListener('click', () => {
-		requestAction('CsvExportGesamt', '');
+		debugRequestAction('CsvExportGesamt', '', 'btnCsvExportGesamt');
 	});
 
 	document.getElementById('btnCsvExportSeite').addEventListener('click', () => {
-		requestAction('CsvExportSeite', '');
+		debugRequestAction('CsvExportSeite', '', 'btnCsvExportSeite');
 	});
 
 document.addEventListener('click', (event) => {
@@ -913,7 +1065,7 @@ document.addEventListener('click', (event) => {
         event.preventDefault();
         const token = String(deleteButton.dataset.csvDeleteToken || '').trim();
         if (token !== '') {
-            requestAction('CsvExportLoeschen', token);
+            debugRequestAction('CsvExportLoeschen', token, 'csvExportDeleteLink');
         }
     }
 });

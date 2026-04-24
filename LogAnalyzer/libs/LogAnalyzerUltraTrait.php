@@ -52,15 +52,11 @@ trait LogAnalyzerUltraTrait
             ];
         }
 
-		// Windows Hardlink nur für logfile.log prüfen
-		if (
-			PHP_OS_FAMILY === 'Windows'
-			&& $this->istSymconLogAliasDatei($konfigurierterPfad)
-			&& $this->istWindowsHardlink($konfigurierterPfad)
-		) {
+		// Windows Hardlink prüfen
+		if (PHP_OS_FAMILY === 'Windows' && $this->istWindowsHardlink($konfigurierterPfad)) {
 			return [
 				'ok'            => false,
-				'fehlermeldung' => 'Im Ultra-Modus ist logfile.log unter Windows nicht zulässig. Bitte wählen Sie die echte Logdatei aus.',
+				'fehlermeldung' => 'Im Ultra-Modus sind Windows-Hardlinks nicht zulässig. Bitte wählen Sie die echte Logdatei aus.',
 				'pfad'          => '',
 				'originalPfad'  => $konfigurierterPfad,
 				'realPfad'      => '',
@@ -1268,15 +1264,6 @@ trait LogAnalyzerUltraTrait
 		}
 
 		return ((int) ($stat['nlink'] ?? 1)) > 1;
-	}
-
-	private function istSymconLogAliasDatei(string $pfad): bool
-	{
-		if ($pfad === '') {
-			return false;
-		}
-
-		return strcasecmp(basename($pfad), 'logfile.log') === 0;
 	}
 
 }

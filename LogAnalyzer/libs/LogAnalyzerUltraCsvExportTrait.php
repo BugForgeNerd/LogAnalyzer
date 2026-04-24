@@ -727,52 +727,79 @@ trait LogAnalyzerUltraCsvExportTrait
 	 * Rückgabewert: void
 	 */
 	private function uebernehmeCsvExportInVisualisierungsDaten(array &$daten): void
-    {
-        $status = $this->initialisiereCsvExportStatusFelder((array) ($daten['status'] ?? $this->leseStatus()));
-        $aktiverExport = $this->holeAktivenCsvExport();
-        $exportListe = $this->holeGueltigeCsvExporteFuerAnzeige();
+	{
+		$this->SendDebug(
+			'CsvExportStatusBeimUebernehmen',
+			sprintf(
+				'persistiert: laeuft=%s bereit=%s token=%s | datenStatus: laeuft=%s bereit=%s token=%s',
+				!empty($persistierterStatus['csvExportLaeuft']) ? 'true' : 'false',
+				!empty($persistierterStatus['csvExportBereit']) ? 'true' : 'false',
+				(string) ($persistierterStatus['csvExportToken'] ?? ''),
+				!empty($datenStatus['csvExportLaeuft']) ? 'true' : 'false',
+				!empty($datenStatus['csvExportBereit']) ? 'true' : 'false',
+				(string) ($datenStatus['csvExportToken'] ?? '')
+			),
+			0
+		);
 
-        $daten['csvExportUnterstuetzt'] = ($this->ermittleAktivenModus() === 'ultra');
-        $daten['csvExportLaeuft'] = (bool) ($status['csvExportLaeuft'] ?? false);
-        $daten['csvExportBereit'] = (bool) ($status['csvExportBereit'] ?? false);
-        $daten['csvExportFehlermeldung'] = (string) ($status['csvExportFehlermeldung'] ?? '');
-        $daten['csvExportToken'] = (string) ($status['csvExportToken'] ?? '');
-        $daten['csvExportScope'] = (string) ($status['csvExportScope'] ?? 'all');
-        $daten['csvExportDateiname'] = (string) ($status['csvExportDateiname'] ?? '');
-        $daten['csvExportDateiPfad'] = (string) ($status['csvExportDatei'] ?? '');
-        $daten['csvExportDateigroesseBytes'] = (int) ($status['csvExportDateigroesseBytes'] ?? 0);
-        $daten['csvExportDateigroesseFormatiert'] = $daten['csvExportDateigroesseBytes'] > 0
-            ? $this->formatiereDateigroesse((int) $daten['csvExportDateigroesseBytes'])
-            : '';
-        $daten['csvExportExportierteZeilen'] = (int) ($status['csvExportExportierteZeilen'] ?? -1);
-        $daten['csvExportLaeuftAbAm'] = (int) ($status['csvExportLaeuftAbAm'] ?? 0);
-        $daten['csvExportLaeuftAbText'] = ((int) ($status['csvExportLaeuftAbAm'] ?? 0)) > 0
-            ? date('d.m.Y H:i:s', (int) $status['csvExportLaeuftAbAm'])
-            : '';
-        $daten['csvExportDownloadUrl'] = (string) ($status['csvExportDownloadUrl'] ?? '');
+		$datenStatus = $this->initialisiereCsvExportStatusFelder((array) ($daten['status'] ?? []));
+		$persistierterStatus = $this->initialisiereCsvExportStatusFelder((array) $this->leseStatus());
 
-        if ($aktiverExport !== []) {
-            $daten['csvExportBereit'] = true;
-            $daten['csvExportToken'] = (string) ($aktiverExport['token'] ?? $daten['csvExportToken']);
-            $daten['csvExportScope'] = (string) ($aktiverExport['scope'] ?? $daten['csvExportScope']);
-            $daten['csvExportDateiname'] = (string) ($aktiverExport['dateiname'] ?? $daten['csvExportDateiname']);
-            $daten['csvExportDateiPfad'] = (string) ($aktiverExport['datei'] ?? $daten['csvExportDateiPfad']);
-            $daten['csvExportDateigroesseBytes'] = (int) ($aktiverExport['dateigroesseBytes'] ?? $daten['csvExportDateigroesseBytes']);
-            $daten['csvExportDateigroesseFormatiert'] = $daten['csvExportDateigroesseBytes'] > 0
-                ? $this->formatiereDateigroesse((int) $daten['csvExportDateigroesseBytes'])
-                : '';
-            $daten['csvExportExportierteZeilen'] = (int) ($aktiverExport['exportierteZeilen'] ?? $daten['csvExportExportierteZeilen']);
-            $daten['csvExportLaeuftAbAm'] = (int) ($aktiverExport['laeuftAbAm'] ?? $daten['csvExportLaeuftAbAm']);
-            $daten['csvExportLaeuftAbText'] = $daten['csvExportLaeuftAbAm'] > 0
-                ? date('d.m.Y H:i:s', (int) $daten['csvExportLaeuftAbAm'])
-                : '';
-            $daten['csvExportDownloadUrl'] = (string) ($aktiverExport['downloadUrl'] ?? $daten['csvExportDownloadUrl']);
-        }
+		$aktiverExport = $this->holeAktivenCsvExport();
+		$exportListe = $this->holeGueltigeCsvExporteFuerAnzeige();
 
-        $daten['csvExportListe'] = $exportListe;
-        $daten['csvExportAnzahl'] = count($exportListe);
-        $daten['csvExportListeVorhanden'] = $exportListe !== [];
-    }
+		$daten['csvExportUnterstuetzt'] = ($this->ermittleAktivenModus() === 'ultra');
+
+		// CSV-Status immer zuerst aus dem frisch persistierten Modulstatus
+		$daten['csvExportLaeuft'] = (bool) ($persistierterStatus['csvExportLaeuft'] ?? false);
+		$daten['csvExportBereit'] = (bool) ($persistierterStatus['csvExportBereit'] ?? false);
+		$daten['csvExportFehlermeldung'] = (string) ($persistierterStatus['csvExportFehlermeldung'] ?? '');
+		$daten['csvExportToken'] = (string) ($persistierterStatus['csvExportToken'] ?? '');
+		$daten['csvExportScope'] = (string) ($persistierterStatus['csvExportScope'] ?? 'all');
+		$daten['csvExportDateiname'] = (string) ($persistierterStatus['csvExportDateiname'] ?? '');
+		$daten['csvExportDateiPfad'] = (string) ($persistierterStatus['csvExportDatei'] ?? '');
+		$daten['csvExportDateigroesseBytes'] = (int) ($persistierterStatus['csvExportDateigroesseBytes'] ?? 0);
+		$daten['csvExportDateigroesseFormatiert'] = $daten['csvExportDateigroesseBytes'] > 0
+			? $this->formatiereDateigroesse((int) $daten['csvExportDateigroesseBytes'])
+			: '';
+		$daten['csvExportExportierteZeilen'] = (int) ($persistierterStatus['csvExportExportierteZeilen'] ?? -1);
+		$daten['csvExportLaeuftAbAm'] = (int) ($persistierterStatus['csvExportLaeuftAbAm'] ?? 0);
+		$daten['csvExportLaeuftAbText'] = $daten['csvExportLaeuftAbAm'] > 0
+			? date('d.m.Y H:i:s', (int) $daten['csvExportLaeuftAbAm'])
+			: '';
+		$daten['csvExportDownloadUrl'] = (string) ($persistierterStatus['csvExportDownloadUrl'] ?? '');
+
+		// Fehlermeldung darf aus den aktuellen Visualisierungsdaten ergänzt werden
+		if ((string) ($daten['csvExportFehlermeldung'] ?? '') === ''
+			&& (string) ($datenStatus['csvExportFehlermeldung'] ?? '') !== '') {
+			$daten['csvExportFehlermeldung'] = (string) $datenStatus['csvExportFehlermeldung'];
+		}
+
+		// WICHTIG:
+		// Einen bereits vorhandenen fertigen Export nur dann überlagern,
+		// wenn gerade KEIN neuer Export läuft.
+		if (!$daten['csvExportLaeuft'] && $aktiverExport !== []) {
+			$daten['csvExportBereit'] = true;
+			$daten['csvExportToken'] = (string) ($aktiverExport['token'] ?? $daten['csvExportToken']);
+			$daten['csvExportScope'] = (string) ($aktiverExport['scope'] ?? $daten['csvExportScope']);
+			$daten['csvExportDateiname'] = (string) ($aktiverExport['dateiname'] ?? $daten['csvExportDateiname']);
+			$daten['csvExportDateiPfad'] = (string) ($aktiverExport['datei'] ?? $daten['csvExportDateiPfad']);
+			$daten['csvExportDateigroesseBytes'] = (int) ($aktiverExport['dateigroesseBytes'] ?? $daten['csvExportDateigroesseBytes']);
+			$daten['csvExportDateigroesseFormatiert'] = $daten['csvExportDateigroesseBytes'] > 0
+				? $this->formatiereDateigroesse((int) $daten['csvExportDateigroesseBytes'])
+				: '';
+			$daten['csvExportExportierteZeilen'] = (int) ($aktiverExport['exportierteZeilen'] ?? $daten['csvExportExportierteZeilen']);
+			$daten['csvExportLaeuftAbAm'] = (int) ($aktiverExport['laeuftAbAm'] ?? $daten['csvExportLaeuftAbAm']);
+			$daten['csvExportLaeuftAbText'] = $daten['csvExportLaeuftAbAm'] > 0
+				? date('d.m.Y H:i:s', (int) $daten['csvExportLaeuftAbAm'])
+				: '';
+			$daten['csvExportDownloadUrl'] = (string) ($aktiverExport['downloadUrl'] ?? $daten['csvExportDownloadUrl']);
+		}
+
+		$daten['csvExportListe'] = $exportListe;
+		$daten['csvExportAnzahl'] = count($exportListe);
+		$daten['csvExportListeVorhanden'] = $exportListe !== [];
+	}
 
 	/**
 	 * ermittleCsvExportFilterSignatur

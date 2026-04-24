@@ -153,6 +153,8 @@ trait LogAnalyzerStandardTrait
 
 		$typen = [];
 		$sender = [];
+		$typenZaehler = [];
+		$senderZaehler = [];
 		$gesamtZeilen = 0;
 
 		$handle = @fopen($logDatei, 'rb');
@@ -160,6 +162,8 @@ trait LogAnalyzerStandardTrait
 			return [
 				'verfuegbareFilterTypen' => [],
 				'verfuegbareSender'      => [],
+				'filterTypZaehler'       => [],
+				'senderZaehler'          => [],
 				'gesamtZeilen'           => -1
 			];
 		}
@@ -178,6 +182,11 @@ trait LogAnalyzerStandardTrait
 					$this->logZeileErfuelltFilterMitAusnahmen($felder, $status, ['filterTypen'])
 				) {
 					$typen[$felder['typ']] = true;
+
+					if (!array_key_exists($felder['typ'], $typenZaehler)) {
+						$typenZaehler[$felder['typ']] = 0;
+					}
+					$typenZaehler[$felder['typ']]++;
 				}
 
 				if (
@@ -185,6 +194,11 @@ trait LogAnalyzerStandardTrait
 					$this->logZeileErfuelltFilterMitAusnahmen($felder, $status, ['senderFilter'])
 				) {
 					$sender[$felder['sender']] = true;
+
+					if (!array_key_exists($felder['sender'], $senderZaehler)) {
+						$senderZaehler[$felder['sender']] = 0;
+					}
+					$senderZaehler[$felder['sender']]++;
 				}
 			}
 		} finally {
@@ -196,10 +210,14 @@ trait LogAnalyzerStandardTrait
 
 		sort($typen, SORT_NATURAL | SORT_FLAG_CASE);
 		sort($sender, SORT_NATURAL | SORT_FLAG_CASE);
+		ksort($typenZaehler, SORT_NATURAL | SORT_FLAG_CASE);
+		ksort($senderZaehler, SORT_NATURAL | SORT_FLAG_CASE);
 
 		return [
 			'verfuegbareFilterTypen' => $typen,
 			'verfuegbareSender'      => $sender,
+			'filterTypZaehler'       => $typenZaehler,
+			'senderZaehler'          => $senderZaehler,
 			'gesamtZeilen'           => $gesamtZeilen
 		];
 	}
