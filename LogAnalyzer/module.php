@@ -7,32 +7,39 @@
  *
  * ToDo:
  * - Hash Prüfung CLI Tool
- * - Manchmal ist Laden im ultra Modus noch unsauber
- * - Konfigurierbar wie lange csv in tmp, sowie maxmenge
  * - Logfile Symlink auch ermöglich über Weiterleitung
  * - DarkLight Abruf vom Tile ausgehend
+ * - private function baueWindowsFilterMetadatenBefehl() läuft im powershell Modus. Ggf später wieder auf cmd ändern, da sehr große Overhead Zeit.
+ * - 
  * - 
 */
 
-/**
-Die Filter-Dropdowns (Meldungstyp, Sender) basieren auf separaten Filtermetadaten, die serverseitig berechnet, gecacht und über eine statusabhängige Signatur validiert werden. Die Signatur berücksichtigt u. a. objektIdFilter, textFilter, filterTypen und senderFilter.
+	/**
+	Gedankenstütze:
+	Die Filter-Dropdowns (Meldungstyp, Sender) basieren auf separaten Filtermetadaten, die serverseitig berechnet, gecacht 
+	und über eine statusabhängige Signatur validiert werden. Die Signatur berücksichtigt 
+	u. a. objektIdFilter, textFilter, filterTypen und senderFilter.
+	
+	Bei Änderungen des Filterzustands (z. B. über „Filter anwenden“) wird diese Signatur ungültig. Dadurch gelten vorhandene 
+	Filtermetadaten als nicht mehr konsistent zum aktuellen Zustand. In diesem Fall liefert leseFilterMetadatenFuerAnzeige() 
+	bewusst leere Listen zurück und setzt gleichzeitig filterMetadatenGeladen = false.
+	
+	Parallel dazu wird der Neuaufbau der Filtermetadaten asynchron orchestriert (Backend), wobei das Frontend zwischenzeitlich 
+	bereits Updates erhält (z. B. Status- oder Tabellenupdates).
+	Da das Frontend in handleMessage() jede eingehende Nachricht als vollständigen Zustand interpretiert und render() die 
+	Dropdowns direkt aus verfuegbareFilterTypen und verfuegbareSender neu aufbaut, führt ein Zwischenzustand mit ungültigen 
+	Metadaten zu leeren Dropdowns.
+	
+	Die korrekte Behandlung erfolgt daher im Frontend:
+	Filtermetadaten dürfen nur dann aus einer neuen Nachricht übernommen werden, wenn filterMetadatenGeladen === true. Ist dies 
+	nicht der Fall, müssen die zuvor gültigen Metadaten beibehalten werden, bis der Backend-Prozess abgeschlossen ist.
 
-Bei Änderungen des Filterzustands (z. B. über „Filter anwenden“) wird diese Signatur ungültig. Dadurch gelten vorhandene Filtermetadaten als nicht mehr konsistent zum aktuellen Zustand. In diesem Fall liefert leseFilterMetadatenFuerAnzeige() bewusst leere Listen zurück und setzt gleichzeitig filterMetadatenGeladen = false.
-
-Parallel dazu wird der Neuaufbau der Filtermetadaten asynchron orchestriert (Backend), wobei das Frontend zwischenzeitlich bereits Updates erhält (z. B. Status- oder Tabellenupdates).
-
-Da das Frontend in handleMessage() jede eingehende Nachricht als vollständigen Zustand interpretiert und render() die Dropdowns direkt aus verfuegbareFilterTypen und verfuegbareSender neu aufbaut, führt ein Zwischenzustand mit ungültigen Metadaten zu leeren Dropdowns.
-
-Die korrekte Behandlung erfolgt daher im Frontend:
-Filtermetadaten dürfen nur dann aus einer neuen Nachricht übernommen werden, wenn filterMetadatenGeladen === true. Ist dies nicht der Fall, müssen die zuvor gültigen Metadaten beibehalten werden, bis der Backend-Prozess abgeschlossen ist.
-
-Dieses Verhalten stellt sicher, dass:
-
-keine inkonsistenten Zwischenzustände dargestellt werden,
-keine zusätzlichen Backend-Loads notwendig sind,
-die bestehende Cache-/Signaturlogik unverändert bleibt,
-und das UI stabil bleibt, obwohl Backend-Prozesse asynchron arbeiten.
-*/
+	Dieses Verhalten stellt sicher, dass:
+	-keine inkonsistenten Zwischenzustände dargestellt werden,
+	-keine zusätzlichen Backend-Loads notwendig sind,
+	-die bestehende Cache-/Signaturlogik unverändert bleibt,
+	-und das UI stabil bleibt, obwohl Backend-Prozesse asynchron arbeiten.
+	*/
 
 declare(strict_types=1);
 require_once __DIR__ . '/libs/LogAnalyzerStandardTrait.php';
@@ -54,11 +61,6 @@ class LogAnalyzer extends IPSModuleStrict
 	private const ATTR_AKTIVE_LOGDATEI = 'AktiveLogDatei';
 	private const ATTR_AKTIVER_BETRIEBSMODUS = 'AktiverBetriebsmodus';
 
-	private function hatSichtbareZeilen(array $daten): bool
-	{
-		$zeilen = $daten['zeilen'] ?? null;
-		return is_array($zeilen) && count($zeilen) > 0;
-	}
 
 	/**
 	 * Create
@@ -224,6 +226,22 @@ class LogAnalyzer extends IPSModuleStrict
         $this->SetSummary($summary);
     }
 
+	/**
+	 * hatSichtbareZeilen
+	 *
+	 * Prüft, ob im übergebenen Datensatz sichtbare Zeilen vorhanden sind.
+	 * - Erwartet ein Array mit dem Schlüssel 'zeilen'
+	 * - Gibt true zurück, wenn mindestens eine Zeile vorhanden ist
+	 *
+	 * Parameter: array $daten
+	 * Rückgabewert: bool
+	 */
+	private function hatSichtbareZeilen(array $daten): bool
+	{
+		$zeilen = $daten['zeilen'] ?? null;
+		return is_array($zeilen) && count($zeilen) > 0;
+	}
+	
 	/**
 	 * leseAktiveLogDatei
 	 *
@@ -548,18 +566,50 @@ class LogAnalyzer extends IPSModuleStrict
 		);
 	}
 
-
+	/**
+	 * naechsteDebugActionId
+	 *
+	 * Ermittelt die nächste Debug-Aktions-ID.
+	 * - Liest den aktuellen Status
+	 * - Erhöht die gespeicherte debugActionId um 1
+	 * - Stellt sicher, dass der Wert mindestens 1 ist
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: int
+	 */
 	private function naechsteDebugActionId(): int
 	{
 		$status = $this->leseStatus();
 		return max(0, (int) ($status['debugActionId'] ?? 0)) + 1;
 	}
 
+	/**
+	 * naechsteDebugUpdateSeq
+	 *
+	 * Ermittelt die nächste Sequenznummer für Debug-Updates.
+	 * - Verwendet den übergebenen Status
+	 * - Erhöht die debugUpdateSeq um 1
+	 * - Stellt sicher, dass der Wert mindestens 1 ist
+	 *
+	 * Parameter: array $status
+	 * Rückgabewert: int
+	 */
 	private function naechsteDebugUpdateSeq(array $status): int
 	{
 		return max(0, (int) ($status['debugUpdateSeq'] ?? 0)) + 1;
 	}
 
+	/**
+	 * kuerzeDebugWert
+	 *
+	 * Wandelt einen Wert in einen String um und kürzt ihn bei Bedarf.
+	 * - Skalarwerte und null werden direkt in Strings umgewandelt
+	 * - Komplexe Werte werden als JSON kodiert (Fallback: print_r)
+	 * - Der resultierende Text wird auf die maximale Länge begrenzt
+	 *
+	 * Parameter: mixed $value, int $maxLaenge
+	 * Rückgabewert: string
+	 */
 	private function kuerzeDebugWert(mixed $value, int $maxLaenge = 240): string
 	{
 		if (is_scalar($value) || $value === null) {
@@ -579,6 +629,17 @@ class LogAnalyzer extends IPSModuleStrict
 		return mb_substr($text, 0, $maxLaenge) . '…';
 	}
 
+	/**
+	 * erfasseRequestActionDebug
+	 *
+	 * Ergänzt den Status um Debug-Informationen zur aktuellen RequestAction.
+	 * - Vergibt eine neue Debug-Aktions-ID
+	 * - Speichert Ident, Wertvorschau, Quelle und Startzeitpunkt
+	 * - Gibt den erweiterten Status zurück
+	 *
+	 * Parameter: array $status, string $ident, mixed $value, string $source
+	 * Rückgabewert: array
+	 */
 	private function erfasseRequestActionDebug(array $status, string $ident, mixed $value, string $source = 'RequestAction'): array
 	{
 		$status['debugActionId'] = $this->naechsteDebugActionId();
@@ -589,6 +650,17 @@ class LogAnalyzer extends IPSModuleStrict
 		return $status;
 	}
 
+	/**
+	 * debugStatusSnapshot
+	 *
+	 * Erstellt eine kompakte Momentaufnahme des aktuellen Status für Debug-Ausgaben.
+	 * - Normalisiert relevante Statuswerte auf feste Datentypen
+	 * - Reduziert den Status auf die für Debugging wichtigen Felder
+	 * - Verhindert unübersichtliche oder unerwartete Debug-Ausgaben
+	 *
+	 * Parameter: array $status
+	 * Rückgabewert: array
+	 */
 	private function debugStatusSnapshot(array $status): array
 	{
 		return [
@@ -613,6 +685,17 @@ class LogAnalyzer extends IPSModuleStrict
 		];
 	}
 
+	/**
+	 * sendeRequestActionDebug
+	 *
+	 * Sendet eine strukturierte Debug-Ausgabe zum Ablauf einer RequestAction.
+	 * - Enthält Phase, Ident, Wertvorschau und Aktions-ID
+	 * - Vergleicht Status vor und nach der Verarbeitung
+	 * - Kann über $extra um zusätzliche Debug-Informationen erweitert werden
+	 *
+	 * Parameter: string $phase, string $ident, mixed $value, array $statusVorher, array $statusNachher, array $extra
+	 * Rückgabewert: void
+	 */
 	private function sendeRequestActionDebug(string $phase, string $ident, mixed $value, array $statusVorher, array $statusNachher, array $extra = []): void
 	{
 		$payload = array_merge([
@@ -627,6 +710,17 @@ class LogAnalyzer extends IPSModuleStrict
 		$this->SendDebug('RequestActionFlow', json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), 0);
 	}
 
+	/**
+	 * erweitereVisualisierungsdatenMitDebug
+	 *
+	 * Ergänzt die Visualisierungsdaten um Debug-Informationen.
+	 * - Übernimmt aktuelle Aktions- und Update-Informationen aus dem Status
+	 * - Speichert Art und Quelle der Aktualisierung
+	 * - Schreibt die Werte direkt in das übergebene Datenarray
+	 *
+	 * Parameter: array &$daten, array $status, string $kind, string $source
+	 * Rückgabewert: void
+	 */
 	private function erweitereVisualisierungsdatenMitDebug(array &$daten, array $status, string $kind, string $source): void
 	{
 		$daten['debugActionId'] = (int) ($status['debugActionId'] ?? 0);
@@ -2861,24 +2955,24 @@ class LogAnalyzer extends IPSModuleStrict
      * Parameter: keine
      * Rückgabewert: array
      */
-private function leseFilterMetadatenRoh(): array
-{
-	$json = $this->ReadAttributeString(self::ATTR_FILTERMETA);
-	$daten = $this->dekodiereJsonArray($json);
+	private function leseFilterMetadatenRoh(): array
+	{
+		$json = $this->ReadAttributeString(self::ATTR_FILTERMETA);
+		$daten = $this->dekodiereJsonArray($json);
 
-	return [
-		'verfuegbareFilterTypen' => is_array($daten['verfuegbareFilterTypen'] ?? null) ? array_values($daten['verfuegbareFilterTypen']) : [],
-		'verfuegbareSender'      => is_array($daten['verfuegbareSender'] ?? null) ? array_values($daten['verfuegbareSender']) : [],
-		'filterTypZaehler'       => is_array($daten['filterTypZaehler'] ?? null) ? $daten['filterTypZaehler'] : [],
-		'senderZaehler'          => is_array($daten['senderZaehler'] ?? null) ? $daten['senderZaehler'] : [],
-		'gesamtZeilenCache'      => (int) ($daten['gesamtZeilenCache'] ?? -1),
-		'dateiGroesseCache'      => (int) ($daten['dateiGroesseCache'] ?? 0),
-		'dateiMTimeCache'        => (int) ($daten['dateiMTimeCache'] ?? 0),
-		'ladezeitMs'             => (int) ($daten['ladezeitMs'] ?? 0),
-		'laedt'                  => (bool) ($daten['laedt'] ?? false),
-		'signatur'               => (string) ($daten['signatur'] ?? '')
-	];
-}
+		return [
+			'verfuegbareFilterTypen' => is_array($daten['verfuegbareFilterTypen'] ?? null) ? array_values($daten['verfuegbareFilterTypen']) : [],
+			'verfuegbareSender'      => is_array($daten['verfuegbareSender'] ?? null) ? array_values($daten['verfuegbareSender']) : [],
+			'filterTypZaehler'       => is_array($daten['filterTypZaehler'] ?? null) ? $daten['filterTypZaehler'] : [],
+			'senderZaehler'          => is_array($daten['senderZaehler'] ?? null) ? $daten['senderZaehler'] : [],
+			'gesamtZeilenCache'      => (int) ($daten['gesamtZeilenCache'] ?? -1),
+			'dateiGroesseCache'      => (int) ($daten['dateiGroesseCache'] ?? 0),
+			'dateiMTimeCache'        => (int) ($daten['dateiMTimeCache'] ?? 0),
+			'ladezeitMs'             => (int) ($daten['ladezeitMs'] ?? 0),
+			'laedt'                  => (bool) ($daten['laedt'] ?? false),
+			'signatur'               => (string) ($daten['signatur'] ?? '')
+		];
+	}
 
 
     /**
@@ -2891,45 +2985,45 @@ private function leseFilterMetadatenRoh(): array
      * Parameter: keine
      * Rückgabewert: array
      */
-private function leseFilterMetadatenFuerAnzeige(): array
-{
-	$roh = $this->leseFilterMetadatenRoh();
-	$logDatei = $this->leseAktiveLogDatei();
-	$status = $this->leseStatus();
+	private function leseFilterMetadatenFuerAnzeige(): array
+	{
+		$roh = $this->leseFilterMetadatenRoh();
+		$logDatei = $this->leseAktiveLogDatei();
+		$status = $this->leseStatus();
 
-	if (!is_file($logDatei)) {
+		if (!is_file($logDatei)) {
+			return [
+				'verfuegbareFilterTypen' => [],
+				'verfuegbareSender'      => [],
+				'filterTypZaehler'       => [],
+				'senderZaehler'          => [],
+				'gesamtZeilen'           => -1,
+				'geladen'                => false,
+				'laedt'                  => (bool) $roh['laedt'],
+				'ladezeitMs'             => (int) $roh['ladezeitMs']
+			];
+		}
+
+		$dateiGroesse = (int) filesize($logDatei);
+		$dateiMTime = (int) filemtime($logDatei);
+		$signatur = $this->ermittleFilterMetadatenSignatur($status);
+
+		$geladen =
+			((int) $roh['dateiGroesseCache'] === $dateiGroesse) &&
+			((int) $roh['dateiMTimeCache'] === $dateiMTime) &&
+			((string) $roh['signatur'] === $signatur);
+
 		return [
-			'verfuegbareFilterTypen' => [],
-			'verfuegbareSender'      => [],
-			'filterTypZaehler'       => [],
-			'senderZaehler'          => [],
-			'gesamtZeilen'           => -1,
-			'geladen'                => false,
+			'verfuegbareFilterTypen' => $geladen ? array_values($roh['verfuegbareFilterTypen']) : [],
+			'verfuegbareSender'      => $geladen ? array_values($roh['verfuegbareSender']) : [],
+			'filterTypZaehler'       => $geladen && is_array($roh['filterTypZaehler'] ?? null) ? $roh['filterTypZaehler'] : [],
+			'senderZaehler'          => $geladen && is_array($roh['senderZaehler'] ?? null) ? $roh['senderZaehler'] : [],
+			'gesamtZeilen'           => $geladen ? (int) $roh['gesamtZeilenCache'] : -1,
+			'geladen'                => $geladen,
 			'laedt'                  => (bool) $roh['laedt'],
 			'ladezeitMs'             => (int) $roh['ladezeitMs']
 		];
 	}
-
-	$dateiGroesse = (int) filesize($logDatei);
-	$dateiMTime = (int) filemtime($logDatei);
-	$signatur = $this->ermittleFilterMetadatenSignatur($status);
-
-	$geladen =
-		((int) $roh['dateiGroesseCache'] === $dateiGroesse) &&
-		((int) $roh['dateiMTimeCache'] === $dateiMTime) &&
-		((string) $roh['signatur'] === $signatur);
-
-	return [
-		'verfuegbareFilterTypen' => $geladen ? array_values($roh['verfuegbareFilterTypen']) : [],
-		'verfuegbareSender'      => $geladen ? array_values($roh['verfuegbareSender']) : [],
-		'filterTypZaehler'       => $geladen && is_array($roh['filterTypZaehler'] ?? null) ? $roh['filterTypZaehler'] : [],
-		'senderZaehler'          => $geladen && is_array($roh['senderZaehler'] ?? null) ? $roh['senderZaehler'] : [],
-		'gesamtZeilen'           => $geladen ? (int) $roh['gesamtZeilenCache'] : -1,
-		'geladen'                => $geladen,
-		'laedt'                  => (bool) $roh['laedt'],
-		'ladezeitMs'             => (int) $roh['ladezeitMs']
-	];
-}
 
     /**
      * schreibeFilterMetadaten

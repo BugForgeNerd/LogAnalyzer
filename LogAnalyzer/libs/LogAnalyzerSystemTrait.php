@@ -839,16 +839,21 @@ trait LogAnalyzerSystemTrait
 		return 'awk -F"|" ' . escapeshellarg($awkProgramm) . ' ' . $datei . ' | sort';
 	}
 
-    /**
-     * baueWindowsFilterMetadatenBefehl
-     *
-     * Baut den PowerShell-Befehl zur Ermittlung von Filtermetadaten.
-     * - Extrahiert Typen und Sender aus der Logdatei
-     * - Liefert die Werte in auswertbarer Form zurück
-     *
-     * Parameter: keine
-     * Rückgabewert: string
-     */
+	/**
+	 * baueWindowsFilterMetadatenBefehl
+	 *
+	 * Baut den PowerShell-Befehl zur Ermittlung von Filtermetadaten.
+	 * - Wird ausschließlich auf Windows-Systemen im Fallback-Modus verwendet
+	 * - Extrahiert Typen und Sender aus der Logdatei
+	 * - Liefert die Werte in auswertbarer Form zurück
+	 *
+	 * Hinweis:
+	 * PowerShell wird hier gezielt als plattformspezifischer Ersatz für fehlende Unix-Tools genutzt.
+	 * Alle Argumente werden vor der Ausführung entsprechend gekapselt.
+	 *
+	 * Parameter: keine
+	 * Rückgabewert: string
+	 */
     private function baueWindowsFilterMetadatenBefehl(): string
     {
         $datei = str_replace("'", "''", $this->leseAktiveLogDatei());

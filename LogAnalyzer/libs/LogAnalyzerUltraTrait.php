@@ -962,7 +962,20 @@ trait LogAnalyzerUltraTrait
 			return false;
 		}
 
-		@exec($cmd . ' > /dev/null 2>&1 &');
+		// Ultra-Modus: optionaler externer CLI-Beschleuniger.
+		// Siehe: https://github.com/BugForgeNerd/LogAnalyzerUltra
+		// Der vollständige Befehl ($cmd) wird ausschließlich über baueUltraShellBefehl() erzeugt.
+		// Dort werden Programm, Kommando und alle Argumente per escapeshellarg() gekapselt.
+		// Es werden nur Symcon-Logdateien aus dem IPS-Logverzeichnis übergeben.
+		// Fehlt die CLI, bleibt das Modul funktionsfähig und nutzt interne Modi.
+		//@exec($cmd . ' > /dev/null 2>&1 &');
+		$rc = 0;
+		@exec($cmd . ' > /dev/null 2>&1 &', $out, $rc);
+		// Fehler nur im Debug sichtbar machen
+		if ($rc !== 0) {
+			$this->SendDebug('UltraExecWarning', 'rc=' . $rc . ' cmd=' . $cmd, 0);
+		}
+		
 		return true;
 	}
 
@@ -1242,8 +1255,13 @@ trait LogAnalyzerUltraTrait
 	/**
 	 * istWindowsHardlink
 	 *
-	 * Prüft, ob eine Datei unter Windows ein Hardlink ist.
-	 * - Verwendet PowerShell zur Erkennung
+	 * Prüft, ob eine Datei unter Windows mehrere Hardlinks besitzt.
+	 * - Verwendet stat(), um die Anzahl der Verknüpfungen (nlink) zu ermitteln
+	 * - Gibt true zurück, wenn mehr als ein Link auf die Datei existiert
+	 *
+	 * Hinweis:
+	 * Die Prüfung erkennt Dateien mit mehreren Verweisen, unterscheidet jedoch
+	 * nicht zwischen Originaldatei und zusätzlichem Hardlink.
 	 *
 	 * Parameter: string $pfad
 	 * Rückgabewert: bool

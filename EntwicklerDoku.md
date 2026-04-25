@@ -15,7 +15,7 @@ Ziel ist es:
 - Vollscans zu vermeiden
 - Parsing zu minimieren
 - OS-Tools zu nutzen
-- Ultra CLI zu integrieren
+- Ultra CLI optional zu integrieren
 - UI reaktiv zu halten
 
 ---
@@ -32,7 +32,7 @@ Cache-Schicht (Attribute)
 Moduswahl
         ↓
 Standard-Modus   System-Modus   Ultra-Modus
-(PHP)            (OS optimiert) (CLI basiert)
+(PHP)            (OS optimiert) (CLI basiert, optional)
                      ↓               ↓
               Windows / Linux     Ultra CLI Tool
 ```
@@ -77,8 +77,8 @@ Zweck:
 ## 3. FilterMetadaten
 
 Speichert:
-- verfügbare Typen
-- verfügbare Sender
+- verfügbare Typen inklusive Anzahl
+- verfügbare Sender inklusive Anzahl
 - Gesamtzeilen
 - Datei-Signatur
 - Ladezeit
@@ -124,7 +124,7 @@ Der System-Modus verwendet unterschiedliche Strategien pro OS.
 
 ```
 System
- ├─ Windows → optimiertes PHP
+ ├─ Windows → optimiertes PHP; PowerShell nur für spezielle Metadaten-/Fallback-Aufgaben
  └─ Linux/Unix → Shell Pipeline
 ```
 
@@ -132,25 +132,7 @@ System
 
 # Ultra-Modus
 
-Der Ultra-Modus nutzt ein externes CLI Tool zur Loganalyse.
-
-## Architektur
-
-```
-UI
- ↓
-RequestAction
- ↓
-Status
- ↓
-UltraTrait
- ↓
-CLI Aufruf
- ↓
-JSON Ergebnis
- ↓
-Cache / UI
-```
+Der Ultra-Modus nutzt optional ein externes CLI Tool zur Loganalyse.
 
 ## Eigenschaften
 
@@ -160,6 +142,7 @@ Cache / UI
 - CLI übernimmt Zählung
 - CLI übernimmt CSV Export
 - höchste Performance
+- Modul bleibt ohne CLI vollständig funktionsfähig
 
 ---
 
@@ -215,6 +198,7 @@ optional löschen
 - kein Directory Zugriff
 - kein Code Execution möglich
 - Zugriff nur auf registrierte Exporte
+- Shell-/CLI-Argumente werden vor Ausführung gekapselt
 
 ---
 

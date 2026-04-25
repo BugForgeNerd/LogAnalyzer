@@ -30,8 +30,8 @@ Logeinträge können gefiltert, durchsucht und seitenweise geladen werden. Dabei
 - Seitenweise Darstellung großer Logdateien  
 - Filterung nach:
   - Objekt-ID
-  - Meldungstyp
-  - Sender
+  - Meldungstyp inklusive dynamischer Trefferanzahl
+  - Sender inklusive dynamischer Trefferanzahl
   - Freitext (Meldung)  
 - Dynamische Filterlisten basierend auf Logdaten  
 - Navigation durch Logseiten (ältere / neuere Einträge)  
@@ -50,15 +50,20 @@ Logeinträge können gefiltert, durchsucht und seitenweise geladen werden. Dabei
 Das Modul stellt drei Betriebsmodi zur Verfügung:
 
 **Standard**
+
 - Reine PHP-Verarbeitung  
 - Maximale Kompatibilität  
 - Geeignet für kleinere Logdateien  
 
 **System**
-- Nutzung von Systemwerkzeugen (z. B. grep, awk, PowerShell)  
+
+- Nutzung von Systemwerkzeugen  
+- Unter Unix/Linux werden native Werkzeuge wie grep und awk verwendet  
+- Unter Windows wird PowerShell gezielt als plattformspezifischer Fallback verwendet  
 - Höhere Performance bei großen Logdateien  
 
 **Ultra**
+
 - Nutzung eines externen Ultra CLI Tools  
 - Höchste Performance  
 - Unterstützt:
@@ -85,7 +90,23 @@ Eigenschaften:
 - Mehrere Exporte gleichzeitig möglich
 - Automatische TTL-basierte Bereinigung
 
+### Ultra CLI Tool
+
+Der Ultra-Modus verwendet optional das externe CLI Tool **LogAnalyzerUltra**:
+
+https://github.com/BugForgeNerd/LogAnalyzerUltra
+
+Das Tool wurde speziell für dieses Modul entwickelt und dient ausschließlich der performanten Analyse großer IP-Symcon Logdateien. Es wird nur verwendet, wenn der Ultra-Modus aktiv ist und das CLI Tool im Backend konfiguriert wurde. Ohne dieses Tool kann das Modul weiterhin im Standard- oder Systemmodus verwendet werden.
+
+Im Ultra-Modus können Index- und Cache-Dateien als Sidecar-Dateien zur jeweiligen Logdatei erzeugt werden. Diese Dateien dienen ausschließlich der Beschleunigung der Analyse und werden nicht zur allgemeinen Manipulation anderer Systembereiche verwendet.
+
 ---
+
+## Dateizugriff
+
+Das Modul liest ausschließlich IP-Symcon Logdateien aus dem von `IPS_GetLogDir()` gelieferten Logverzeichnis. Frei wählbare externe Dateipfade werden nicht verarbeitet.
+
+Der Zugriff auf lokale Dateien ist Bestandteil der Kernfunktion des Moduls, da Logdateien analysiert, gefiltert und optional exportiert werden. Dateioperationen beschränken sich auf die Logdateien, temporäre Exportdateien sowie im Ultra-Modus auf zugehörige Index- und Cache-Dateien.
 
 ## Sicherheit (Download-Hook)
 
@@ -117,6 +138,7 @@ Getestete Systeme:
 - Linux Debian 13
 - Windows 11
 - Docker (Debian basierend)
+- Tinker Board R2.0 mit ARM32
 
 Weitere Systeme sollten grundsätzlich funktionieren, sind jedoch nicht getestet:
 
@@ -130,7 +152,7 @@ Weitere Systeme sollten grundsätzlich funktionieren, sind jedoch nicht getestet
 
 - IP-Symcon ab Version **8.1** empfohlen  
 - Zugriff auf eine gültige Logdatei  
-- Ultra CLI Tool (nur für Ultra-Modus erforderlich)  
+- Ultra CLI Tool **LogAnalyzerUltra** (nur für Ultra-Modus erforderlich): https://github.com/BugForgeNerd/LogAnalyzerUltra  
 
 ---
 
@@ -155,6 +177,8 @@ https://www.symcon.de/service/dokumentation/konzepte/instanzen/#Instanz_hinzufü
 Die meisten Einstellungen erfolgen direkt in der Tile-Visualisierung.  
 Für den Ultra-Modus muss zusätzlich der Pfad zur Ultra CLI im Backend hinterlegt werden.
 
+Der Ultra-Modus ist optional. Ist das externe CLI Tool nicht vorhanden oder nicht verwendbar, bleibt das Modul weiterhin funktionsfähig und kann über die internen Modi verwendet werden.
+
 ---
 
 ## 5. Statusvariablen und Profile
@@ -172,14 +196,16 @@ Die Visualisierung stellt eine interaktive Oberfläche zur Analyse der Logdaten 
 ### Funktionen
 
 **Filterbereich**
+
 - Logdatei-Auswahl  
 - Zeilen pro Seite  
 - Objekt-ID Filter  
-- Meldungstyp (Multi-Select)  
-- Sender (Multi-Select)  
+- Meldungstyp (Multi-Select mit Trefferanzahl je Typ)  
+- Sender (Multi-Select mit Trefferanzahl je Sender)  
 - Freitextsuche  
 
 **Bedienelemente**
+
 - Filter anwenden  
 - Aktualisieren  
 - Navigation zu älteren / neueren Einträgen  
@@ -189,6 +215,7 @@ Die Visualisierung stellt eine interaktive Oberfläche zur Analyse der Logdaten 
 - CSV Export (Ultra)  
 
 **Statusanzeige**
+
 - Aktuelle Datei  
 - Dateigröße  
 - Trefferbereich  
@@ -198,6 +225,7 @@ Die Visualisierung stellt eine interaktive Oberfläche zur Analyse der Logdaten 
 - Zeitstempel der Daten  
 
 **Tabelle**
+
 - Zeitstempel  
 - Objekt-ID  
 - Meldungstyp  
@@ -232,14 +260,15 @@ Ansicht im Webfront der neuen Kacheloberfläche - hier LightMode:
 
 Ansicht im Konfigurationsformular des Moduls:
 
-![Konfiguration](imgs/Screenshot_BackendKonfig1.png)
+![Konfiguration](imgs/Screenshot_BackendKonfig2.png)
 
 ---
 
 ## Hinweise
 
 - Große Logdateien werden seitenweise geladen  
-- Ultra-Modus benötigt externes CLI Tool  
+- Ultra-Modus benötigt das externe CLI Tool LogAnalyzerUltra  
+- Ohne Ultra CLI bleibt das Modul im Standard- und Systemmodus nutzbar  
 - CSV-Export nur im Ultra-Modus verfügbar  
 - Exportdateien werden automatisch gelöscht  
 - Verhalten kann je nach Plattform variieren  
