@@ -599,3 +599,10 @@ body.compact .multi-select-option,
 body.compact .custom-select-option {
     font-size: 12px;
 }
+
+/* Text markieren & kopieren wieder erlauben */
+.table-wrap,
+.table-wrap * {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+}
