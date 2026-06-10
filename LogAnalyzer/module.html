@@ -129,6 +129,20 @@
                 </label>
 
                 <!-- Filterungen anwenden und Aktualisieren sowie Blättern -->
+					<!-- Mehrzeilige Fehlermeldungen nur für Standard/System -->
+					<label class="inline-control" id="mehrzeiligeMeldungenControl">
+						<span>Mehrzeilig:</span>
+						<select id="mehrzeiligeMeldungenSelect" class="native-select-hidden">
+							<option value="0">Aus</option>
+							<option value="1">Ein</option>
+						</select>
+						<div class="custom-select" id="mehrzeiligeMeldungenCustom">
+							<button type="button" class="custom-select-button" id="mehrzeiligeMeldungenCustomButton">Aus</button>
+							<div class="custom-select-dropdown" id="mehrzeiligeMeldungenCustomDropdown">
+								<div class="custom-select-options" id="mehrzeiligeMeldungenCustomOptions"></div>
+							</div>
+						</div>
+					</label>
                 <button id="btnAnwenden">Filter anwenden</button>
                 <button id="btnReload" class="secondary">Aktualisieren</button>
                 <button id="btnZurueck" class="secondary">Neuere</button>
@@ -305,7 +319,8 @@
         { selectId: 'maxZeilenSelect', customId: 'maxZeilenCustom' },
         { selectId: 'themeSelect', customId: 'themeCustom' },
         { selectId: 'kompaktSelect', customId: 'kompaktCustom' },
-        { selectId: 'betriebsmodusSelect', customId: 'betriebsmodusCustom' }
+		{ selectId: 'betriebsmodusSelect', customId: 'betriebsmodusCustom' },
+		{ selectId: 'mehrzeiligeMeldungenSelect', customId: 'mehrzeiligeMeldungenCustom' }
     ];
 
     // Escaped HTML-Sonderzeichen für sichere Ausgabe im DOM
@@ -748,8 +763,25 @@ function render(data) {
     const buildDauerMs = Number(currentData.ultraBuildDauerMs ?? status.ultraBuildDauerMs ?? 0);
     document.getElementById('metaBuildLadezeit').textContent = istUltra && buildDauerMs > 0 ? ('Ladezeit Build: ' + buildDauerMs + ' ms') : 'Ladezeit Build: -';
 
-    document.getElementById('betriebsmodusSelect').value = currentData.betriebsmodus || 'standard';
-    syncAllCustomSelects();
+	// Ergänzung für v1.1.0
+	document.getElementById('betriebsmodusSelect').value = currentData.betriebsmodus || 'standard';
+
+	const modus = String(currentData.betriebsmodus || 'standard');
+	const mehrzeiligeControl = document.getElementById('mehrzeiligeMeldungenControl');
+	const mehrzeiligeSelect = document.getElementById('mehrzeiligeMeldungenSelect');
+
+	if (mehrzeiligeSelect) {
+		mehrzeiligeSelect.value = status.mehrzeiligeMeldungen ? '1' : '0';
+	}
+
+	if (mehrzeiligeControl) {
+		mehrzeiligeControl.style.display =
+			(modus === 'standard' || modus === 'system')
+				? ''
+				: 'none';
+	}
+
+	syncAllCustomSelects();
 
     const metaTreffer = document.getElementById('metaTreffer');
     if (currentData.zaehlungLaeuft) {
@@ -1051,6 +1083,11 @@ function render(data) {
         debugRequestAction('SetzeBetriebsmodus', event.target.value, 'betriebsmodusSelect');
     });
 	
+	// Reagiert auf einen Wechsel Mehrzeiligkeit
+	document.getElementById('mehrzeiligeMeldungenSelect').addEventListener('change', (event) => {
+		debugRequestAction('SetzeMehrzeiligeMeldungen', event.target.value === '1', 'mehrzeiligeMeldungenSelect');
+	});
+
 	document.getElementById('btnCsvExportGesamt').addEventListener('click', () => {
 		debugRequestAction('CsvExportGesamt', '', 'btnCsvExportGesamt');
 	});

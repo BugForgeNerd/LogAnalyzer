@@ -101,6 +101,7 @@ class LogAnalyzer extends IPSModuleStrict
 			'maxZeilen'                => 50,
 			'theme'                    => 'dark',
 			'kompakt'                  => false,
+			'mehrzeiligeMeldungen'     => false,		// Ergänzung für v1.1.0
 			'filterTypen'              => [],
 			'objektIdFilter'           => '',
 			'senderFilter'             => [],
@@ -666,6 +667,8 @@ class LogAnalyzer extends IPSModuleStrict
 		return [
 			'seite' => (int) ($status['seite'] ?? 0),
 			'maxZeilen' => (int) ($status['maxZeilen'] ?? 0),
+			'mehrzeiligeMeldungen' => (bool) ($status['mehrzeiligeMeldungen'] ?? false),
+			'mehrzeiligeMeldungenAktiv' => $this->verwendeMehrzeiligeMeldungen($status),
 			'filterTypen' => is_array($status['filterTypen'] ?? null) ? array_values($status['filterTypen']) : [],
 			'objektIdFilter' => (string) ($status['objektIdFilter'] ?? ''),
 			'senderFilter' => is_array($status['senderFilter'] ?? null) ? array_values($status['senderFilter']) : [],
@@ -929,6 +932,7 @@ class LogAnalyzer extends IPSModuleStrict
 						'maxZeilen'                => $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50)),
 						'theme'                    => $this->normalisiereTheme((string) ($status['theme'] ?? 'dark')),
 						'kompakt'                  => $this->normalisiereKompakt($status['kompakt'] ?? false),
+						'mehrzeiligeMeldungen'     => (bool) ($status['mehrzeiligeMeldungen'] ?? false),
 						'filterTypen'              => [],
 						'objektIdFilter'           => '',
 						'senderFilter'             => [],
@@ -995,7 +999,27 @@ class LogAnalyzer extends IPSModuleStrict
 					$this->schreibeStatus($status);
 					$this->aktualisiereVisualisierung();
 					return;
+				// Ergänzung Case für v1.1.0
+				case 'SetzeMehrzeiligeMeldungen':
+					$status['mehrzeiligeMeldungen'] = (bool) $Value;
+					$status['seite'] = 0;
+					$status['trefferGesamt'] = -1;
 
+					$this->schreibeSeitenCache([
+						'listenSignatur'    => '',
+						'zaehlSignatur'     => '',
+						'dateiGroesseCache' => 0,
+						'dateiMTimeCache'   => 0,
+						'trefferGesamt'     => -1,
+						'hatWeitere'        => false,
+						'zeilen'            => []
+					]);
+
+					$status = $this->setzeTabellenLadezustand(true, 'Tabelle wird neu geladen …', 'RequestAction/SetzeMehrzeiligeMeldungen', $status);
+					$this->schreibeStatus($status);
+					$this->AktualisierenVisualisierung();
+					return;
+	
 				case 'SetzeBetriebsmodus':
 					$modus = strtolower(trim((string) $Value));
 					if (!in_array($modus, ['standard', 'system', 'ultra'], true)) {
@@ -1543,9 +1567,10 @@ class LogAnalyzer extends IPSModuleStrict
 
 		$this->SendDebug('StatusCache',
 			sprintf(
-				'datei=%s modus=%s zeilen=%d hatWeitere=%s treffer=%d tabellenLadung=%s zaehlung=%s filterLaeuft=%s',
+				'datei=%s modus=%s mehrzeilig=%s zeilen=%d hatWeitere=%s treffer=%d tabellenLadung=%s zaehlung=%s filterLaeuft=%s',
 				basename($logDatei),
 				$betriebsmodus,
+				$this->verwendeMehrzeiligeMeldungen($status) ? 'true' : 'false',
 				is_array($ergebnis['zeilen'] ?? null) ? count($ergebnis['zeilen']) : 0,
 				($ergebnis['hatWeitere'] ?? false) ? 'true' : 'false',
 				(int) ($ergebnis['trefferGesamt'] ?? -1),
@@ -2203,6 +2228,10 @@ class LogAnalyzer extends IPSModuleStrict
 		$take = (($seite + 1) * $maxZeilen) + 1;
 		$head = $maxZeilen + 1;
 
+		if ($this->verwendeMehrzeiligeMeldungen($status)) {
+			return $this->ladeLogZeilenSystemMehrzeiligPhp($status);
+		}
+
 		$befehl = $this->baueShellBefehl($status, $take, $head);
 
 		$start = microtime(true);
@@ -2299,6 +2328,102 @@ class LogAnalyzer extends IPSModuleStrict
 			'fehlermeldung' => '',
 			'zeilen'        => $zeilen,
 			'hatWeitere'    => $hatWeitere
+		];
+	}
+
+	/**
+	 * ladeLogZeilenSystemMehrzeiligPhp
+	 *
+	 * Lädt Logzeilen im Systemmodus mit aktivierter Mehrzeilenverarbeitung per PHP.
+	 * - Wird nur verwendet, wenn der Mehrzeilen-Schalter im Systemmodus aktiv ist
+	 * - Führt Folgezeilen zu vollständigen Logeinträgen zusammen
+	 * - Lässt den schnellen Shell-Systempfad bei deaktivierter Mehrzeilenverarbeitung unverändert
+	 *
+	 * Parameter: array $status
+	 * Rückgabewert: array
+	 */
+	private function ladeLogZeilenSystemMehrzeiligPhp(array $status): array
+	{
+		$start = microtime(true);
+		$logDatei = $this->leseAktiveLogDatei();
+		$maxZeilen = $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50));
+		$seite = max(0, (int) ($status['seite'] ?? 0));
+
+		$zeilen = [];
+		$handle = @fopen($logDatei, 'rb');
+		if ($handle === false) {
+			return [
+				'ok'            => false,
+				'fehlermeldung' => 'Logdatei konnte nicht geöffnet werden: ' . $logDatei,
+				'zeilen'        => [],
+				'hatWeitere'    => false,
+				'trefferGesamt' => -1
+			];
+		}
+
+		try {
+			foreach ($this->leseLogEintraegeVorwaerts($handle, true) as $zeile) {
+				$parsed = $this->parseLogZeile($zeile);
+				if ($parsed === null) {
+					continue;
+				}
+
+				if (!$this->logZeileErfuelltFilter([
+					'zeitstempel' => (string) $parsed['zeitstempel'],
+					'objektId'    => (string) $parsed['objektId'],
+					'typ'         => (string) $parsed['typ'],
+					'sender'      => (string) $parsed['sender'],
+					'meldung'     => (string) $parsed['meldung']
+				], $status)) {
+					continue;
+				}
+
+				$zeilen[] = $parsed;
+			}
+		} finally {
+			fclose($handle);
+		}
+
+		$zeilen = array_reverse($zeilen);
+		$trefferGesamt = count($zeilen);
+		$offset = $seite * $maxZeilen;
+		$sichtbareZeilen = array_slice($zeilen, $offset, $maxZeilen);
+		$hatWeitere = ($offset + $maxZeilen) < $trefferGesamt;
+
+		$dateiGroesse = is_file($logDatei) ? (int) filesize($logDatei) : 0;
+		$dateiMTime = is_file($logDatei) ? (int) filemtime($logDatei) : 0;
+
+		$this->schreibeSeitenCache([
+			'listenSignatur'    => $this->ermittleListenCacheSignatur($status),
+			'zaehlSignatur'     => $this->ermittleZaehlsignatur($status),
+			'dateiGroesseCache' => $dateiGroesse,
+			'dateiMTimeCache'   => $dateiMTime,
+			'trefferGesamt'     => $trefferGesamt,
+			'hatWeitere'        => $hatWeitere,
+			'zeilen'            => $sichtbareZeilen
+		]);
+
+		$this->SendDebug(
+			'ladeLogZeilen',
+			sprintf(
+				'plattform=system-php-mehrzeilig datei=%s seite=%d maxZeilen=%d treffer=%d parsed=%d hatWeitere=%s dauerMs=%d cache=geschrieben',
+				basename($logDatei),
+				$seite,
+				$maxZeilen,
+				$trefferGesamt,
+				count($sichtbareZeilen),
+				$hatWeitere ? 'true' : 'false',
+				(int) round((microtime(true) - $start) * 1000)
+			),
+			0
+		);
+
+		return [
+			'ok'            => true,
+			'fehlermeldung' => '',
+			'zeilen'        => $sichtbareZeilen,
+			'hatWeitere'    => $hatWeitere,
+			'trefferGesamt' => $trefferGesamt
 		];
 	}
 
@@ -2447,7 +2572,8 @@ class LogAnalyzer extends IPSModuleStrict
 			'filterTypen'     => $this->normalisiereFilterTypen($status['filterTypen'] ?? []),
 			'objektIdFilter'  => $this->normalisiereObjektIdFilterString((string) ($status['objektIdFilter'] ?? '')),
 			'senderFilter'    => $this->normalisiereSenderFilter($status['senderFilter'] ?? []),
-			'textFilter'      => trim((string) ($status['textFilter'] ?? ''))
+			'textFilter'      => trim((string) ($status['textFilter'] ?? '')),
+			'mehrzeilig'      => $this->verwendeMehrzeiligeMeldungen($status)
 		], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 	}
 
@@ -2547,6 +2673,7 @@ class LogAnalyzer extends IPSModuleStrict
 			'maxZeilen'                => $this->normalisiereMaxZeilen((int) ($daten['maxZeilen'] ?? $this->ReadPropertyInteger('MaxZeilen'))),
 			'theme'                    => $this->normalisiereTheme((string) ($daten['theme'] ?? 'dark')),
 			'kompakt'                  => $this->normalisiereKompakt($daten['kompakt'] ?? false),
+			'mehrzeiligeMeldungen'     => (bool) ($daten['mehrzeiligeMeldungen'] ?? false),
 			'filterTypen'              => $this->normalisiereFilterTypen($daten['filterTypen'] ?? []),
 			'objektIdFilter'           => $this->normalisiereObjektIdFilterString((string) ($daten['objektIdFilter'] ?? '')),
 			'senderFilter'             => $this->normalisiereSenderFilter($daten['senderFilter'] ?? []),
@@ -2609,6 +2736,7 @@ class LogAnalyzer extends IPSModuleStrict
 				'maxZeilen'                => $this->normalisiereMaxZeilen((int) ($status['maxZeilen'] ?? 50)),
 				'theme'                    => $this->normalisiereTheme((string) ($status['theme'] ?? 'dark')),
 				'kompakt'                  => $this->normalisiereKompakt($status['kompakt'] ?? false),
+				'mehrzeiligeMeldungen'     => (bool) ($status['mehrzeiligeMeldungen'] ?? false),
 				'filterTypen'              => $this->normalisiereFilterTypen($status['filterTypen'] ?? []),
 				'objektIdFilter'           => $this->normalisiereObjektIdFilterString((string) ($status['objektIdFilter'] ?? '')),
 				'senderFilter'             => $this->normalisiereSenderFilter($status['senderFilter'] ?? []),
@@ -3149,7 +3277,8 @@ class LogAnalyzer extends IPSModuleStrict
             'filterTypen'    => $this->normalisiereFilterTypen($status['filterTypen'] ?? []),
             'objektIdFilter' => $this->normalisiereObjektIdFilterString((string) ($status['objektIdFilter'] ?? '')),
             'senderFilter'   => $this->normalisiereSenderFilter($status['senderFilter'] ?? []),
-            'textFilter'     => trim((string) ($status['textFilter'] ?? ''))
+			'textFilter'     => trim((string) ($status['textFilter'] ?? '')),
+			'mehrzeilig'     => $this->verwendeMehrzeiligeMeldungen($status)	// Ergänzung für v1.1.0
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
     }
 
@@ -3184,7 +3313,7 @@ class LogAnalyzer extends IPSModuleStrict
 				'filterTypen'      => array_values((array) ($status['filterTypen'] ?? [])),
 				'senderFilter'     => array_values((array) ($status['senderFilter'] ?? [])),
 				'objektIdFilter'   => trim((string) ($status['objektIdFilter'] ?? '')),
-				'textFilter'       => trim((string) ($status['textFilter'] ?? ''))
+				'textFilter'       => trim((string) ($status['textFilter'] ?? ''))	// Ergänzung für v1.1.0
 			], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
 		}
 
@@ -3205,6 +3334,90 @@ class LogAnalyzer extends IPSModuleStrict
 			'filterTypen'    => $this->normalisiereFilterTypen($status['filterTypen'] ?? []),
 			'senderFilter'   => $this->normalisiereSenderFilter($status['senderFilter'] ?? [])
 		], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+	}
+
+	// Ergänzung für v1.1.0
+	/**
+	 * istSymconLogStartzeile
+	 *
+	 * Prüft, ob eine Zeile den Beginn eines neuen Symcon-Logeintrags darstellt.
+	 * - Erkennt Logkopfzeilen anhand des Zeitstempelformats
+	 * - Dient zur Abgrenzung mehrzeiliger Logeinträge
+	 * - Wird nur bei aktivierter Mehrzeilenverarbeitung verwendet
+	 *
+	 * Parameter: string $zeile
+	 * Rückgabewert: bool
+	 */
+	private function istSymconLogStartzeile(string $zeile): bool
+	{
+		return preg_match('/^\d{2}\.\d{2}\.\d{4}\s+\d{2}:\d{2}:\d{2}\s*\|/', $zeile) === 1;
+	}
+
+	// Ergänzung für v1.1.0
+	/**
+	 * leseLogEintraegeVorwaerts
+	 *
+	 * Liest Logeinträge vorwärts aus einer geöffneten Datei.
+	 * - Im Standardbetrieb wird jede physische Zeile einzeln geliefert
+	 * - Bei aktivierter Mehrzeilenverarbeitung werden Folgezeilen
+	 *   zu einem vollständigen Logeintrag zusammengeführt
+	 * - Ein neuer Eintrag beginnt mit einer erkannten Symcon-Logkopfzeile
+	 *
+	 * Parameter: resource $handle, bool $mehrzeilig
+	 * Rückgabewert: Generator
+	 */
+	private function leseLogEintraegeVorwaerts($handle, bool $mehrzeilig): Generator
+	{
+		if (!$mehrzeilig) {
+			while (($zeile = fgets($handle)) !== false) {
+				yield $zeile;
+			}
+			return;
+		}
+
+		$block = '';
+
+		while (($zeile = fgets($handle)) !== false) {
+			$zeile = rtrim($zeile, "\r\n");
+
+			if ($this->istSymconLogStartzeile($zeile)) {
+				if ($block !== '') {
+					yield $block;
+				}
+
+				$block = $zeile;
+				continue;
+			}
+
+			if ($block !== '') {
+				$block .= "\n" . $zeile;
+			}
+		}
+
+		if ($block !== '') {
+			yield $block;
+		}
+	}
+	
+	// Ergänzung für v1.1.0
+	/**
+	 * verwendeMehrzeiligeMeldungen
+	 *
+	 * Prüft, ob die Zusammenführung mehrzeiliger Logmeldungen
+	 * für den aktuellen Betriebsmodus aktiviert werden soll.
+	 * - Berücksichtigt die Benutzereinstellung
+	 * - Aktiviert die Funktion ausschließlich für Standard- und Systemmodus
+	 * - Ultra-Modus bleibt grundsätzlich unberührt
+	 *
+	 * Parameter: array $status
+	 * Rückgabewert: bool
+	 */
+	private function verwendeMehrzeiligeMeldungen(array $status): bool
+	{
+		$modus = $this->ermittleAktivenModus();
+
+		return (bool) ($status['mehrzeiligeMeldungen'] ?? false)
+			&& in_array($modus, ['standard', 'system'], true);
 	}
 
     /**

@@ -40,6 +40,7 @@ Logeinträge können gefiltert, durchsucht und seitenweise geladen werden. Dabei
 - Umschaltbares Theme (Dark / Light)  
 - Umschaltbarer kompakter Darstellungsmodus  
 - Auswahl verschiedener Betriebsmodi zur Performance-Optimierung  
+- Optionale Zusammenführung mehrzeiliger Fehlermeldungen (Standard- und Systemmodus)  
 - Auswahl der Logdatei direkt in der Tile  
 - CSV-Export im Ultra-Modus  
 - Temporäre Downloadlinks für CSV-Exporte  
@@ -54,6 +55,7 @@ Das Modul stellt drei Betriebsmodi zur Verfügung:
 - Reine PHP-Verarbeitung  
 - Maximale Kompatibilität  
 - Geeignet für kleinere Logdateien  
+- Optional: Zusammenführung mehrzeiliger Symcon-Fehlermeldungen und Stacktraces  
 
 **System**
 
@@ -61,6 +63,7 @@ Das Modul stellt drei Betriebsmodi zur Verfügung:
 - Unter Unix/Linux werden native Werkzeuge wie grep und awk verwendet  
 - Unter Windows wird PowerShell gezielt als plattformspezifischer Fallback verwendet  
 - Höhere Performance bei großen Logdateien  
+- Optional: Zusammenführung mehrzeiliger Symcon-Fehlermeldungen und Stacktraces  
 
 **Ultra**
 
@@ -212,7 +215,15 @@ Die Visualisierung stellt eine interaktive Oberfläche zur Analyse der Logdaten 
 - Theme-Auswahl (Dark / Light)  
 - Kompaktmodus  
 - Auswahl des Betriebsmodus (Standard / System / Ultra)  
+- Schalter „Mehrzeilige Fehlermeldungen“ (nur Standard / System)  
 - CSV Export (Ultra)  
+
+**Mehrzeilige Fehlermeldungen**
+
+- Optional aktivierbar im Standard- und Systemmodus
+- Führt mehrzeilige Symcon-Fehlermeldungen und Stacktraces zu einem einzelnen Logeintrag zusammen
+- Hilfreich bei PHP Fatal Errors, Warnings und Stacktraces mit Folgezeilen
+- Im Ultra-Modus ohne Funktion, da dort die native Mehrzeilenverarbeitung des Ultra CLI verwendet wird
 
 **Statusanzeige**
 

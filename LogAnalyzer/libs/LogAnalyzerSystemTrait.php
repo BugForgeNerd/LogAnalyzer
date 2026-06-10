@@ -102,6 +102,8 @@ trait LogAnalyzerSystemTrait
 		$dateiMTime = is_file($logDatei) ? (int) filemtime($logDatei) : 0;
 		$listenSignatur = $this->ermittleListenCacheSignatur($status);
 		$zaehlSignatur = $this->ermittleZaehlsignatur($status);
+		// Ergänzung für v1.1.0
+		$mehrzeilig = $this->verwendeMehrzeiligeMeldungen($status);
 
 		if (!$this->hatAktiveFilter($status)) {
 			$start = microtime(true);
@@ -211,7 +213,8 @@ trait LogAnalyzerSystemTrait
 		}
 
 		try {
-			while (($zeile = fgets($handle)) !== false) {
+			// Ergänzung für v1.1.0
+			foreach ($this->leseLogEintraegeVorwaerts($handle, $mehrzeilig) as $zeile) {
 				$felder = $this->extrahiereLogFelder($zeile);
 				if ($felder === null) {
 					continue;
@@ -256,7 +259,8 @@ trait LogAnalyzerSystemTrait
 		$this->SendDebug(
 			'ladeLogZeilen',
 			sprintf(
-				'plattform=windows modus=filter datei=%s seite=%d maxZeilen=%d treffer=%d parsed=%d hatWeitere=%s dauerMs=%d cache=geschrieben',
+				'plattform=windows modus=filter mehrzeilig=%s datei=%s seite=%d maxZeilen=%d treffer=%d parsed=%d hatWeitere=%s dauerMs=%d cache=geschrieben',
+				$mehrzeilig ? 'true' : 'false',
 				basename($logDatei),
 				$seite,
 				$maxZeilen,
@@ -360,8 +364,11 @@ trait LogAnalyzerSystemTrait
 			$this->SendDebug('ZaehleTrefferFehler', 'plattform=windows dateiNichtOeffenbar', 0);
 			return 0;
 		}
+		
+		// Ergänzung für v1.1.0
+		$mehrzeilig = $this->verwendeMehrzeiligeMeldungen($status);
 		try {
-			while (($zeile = fgets($handle)) !== false) {
+			foreach ($this->leseLogEintraegeVorwaerts($handle, $mehrzeilig) as $zeile) {
 				$felder = $this->extrahiereLogFelder($zeile);
 				if ($felder === null) {
 					continue;
@@ -374,6 +381,15 @@ trait LogAnalyzerSystemTrait
 		} finally {
 			fclose($handle);
 		}
+		$this->SendDebug(
+			'ZaehleTreffer',
+			sprintf(
+				'plattform=windows mehrzeilig=%s anzahl=%d',
+				$mehrzeilig ? 'true' : 'false',
+				$anzahl
+			),
+			0
+		);
 		return $anzahl;
 	}
 

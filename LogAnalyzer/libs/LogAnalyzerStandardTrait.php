@@ -30,10 +30,14 @@ trait LogAnalyzerStandardTrait
 				'trefferGesamt' => -1
 			];
 		}
-
+		
 		try {
-			while (($zeile = fgets($handle)) !== false) {
+			// Änderung für v1.1.0
+			$mehrzeilig = $this->verwendeMehrzeiligeMeldungen($status);
+
+			foreach ($this->leseLogEintraegeVorwaerts($handle, $mehrzeilig) as $zeile) {
 				$parsed = $this->parseLogZeile($zeile);
+			
 				if ($parsed === null) {
 					continue;
 				}
@@ -114,7 +118,10 @@ trait LogAnalyzerStandardTrait
 		}
 
 		try {
-			while (($zeile = fgets($handle)) !== false) {
+			// Änderung für v1.1.0
+			$mehrzeilig = $this->verwendeMehrzeiligeMeldungen($status);
+
+			foreach ($this->leseLogEintraegeVorwaerts($handle, $mehrzeilig) as $zeile) {
 				$parsed = $this->parseLogZeile($zeile);
 				if ($parsed === null) {
 					continue;
